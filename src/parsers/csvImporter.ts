@@ -34,23 +34,24 @@ export function importBrokerCsv(
 
         if (broker === 'AVANZA') {
           const type = (row['Typ av transaktion'] || row['Transaktionstyp'] || '').toLowerCase();
-          // Friendly fund/stock name (e.g. "Avanza Zero", "Investor B")
-          const name = row['Värdepapper'] || row['Namn'] || 'Unknown Asset';
-          // Identifier or ISIN
-          const symbol = row['Kortnamn'] || row['ISIN'] || name;
+          const rawName = row['Värdepapper'] || row['Namn'] || '';
+          const isin = row['ISIN'] || row['Kortnamn'] || '';
+          
+          if (!rawName && !isin) continue;
+
+          const name = rawName.trim() || isin.trim();
+          const symbol = isin.trim() || name;
           const qty = parseNumber(row['Antal']);
           const amount = parseNumber(row['Belopp']);
           const price = parseNumber(row['Kurs']) || 0;
           const curr = row['Valuta'] || 'SEK';
 
-          if (!name) continue;
-
           let entry = holdingsMap.get(name);
           if (!entry) {
             entry = {
               brokerName: 'Avanza',
-              symbol: symbol.trim(),
-              name: name.trim(),
+              symbol: symbol,
+              name: name,
               currency: curr.trim(),
               totalQty: 0,
               totalCost: 0,
@@ -69,21 +70,24 @@ export function importBrokerCsv(
           if (price > 0) entry.marketPrice = price;
         } else if (broker === 'NORDNET') {
           const type = (row['Transaktionstyp'] || row['Typ'] || '').toLowerCase();
-          const name = row['Namn'] || row['Instrument'] || 'Unknown Asset';
-          const symbol = row['Symbol'] || row['Instrument'] || name;
+          const rawName = row['Namn'] || row['Instrument'] || '';
+          const isin = row['Symbol'] || row['ISIN'] || '';
+
+          if (!rawName && !isin) continue;
+
+          const name = rawName.trim() || isin.trim();
+          const symbol = isin.trim() || name;
           const qty = parseNumber(row['Antal'] || row['Volume']);
           const amount = parseNumber(row['Belopp'] || row['Summa']);
           const price = parseNumber(row['Kurs'] || row['Pris']) || 0;
           const curr = row['Valuta'] || 'SEK';
 
-          if (!name) continue;
-
           let entry = holdingsMap.get(name);
           if (!entry) {
             entry = {
               brokerName: 'Nordnet',
-              symbol: symbol.trim(),
-              name: name.trim(),
+              symbol: symbol,
+              name: name,
               currency: curr.trim(),
               totalQty: 0,
               totalCost: 0,
@@ -147,6 +151,7 @@ export function importBrokerCsv(
         INSERT INTO holdings (broker, category, symbol, name, currency, quantity, avg_price, market_price, updated_at)
         VALUES (?, 'EQUITY', ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         ON CONFLICT(broker, symbol) DO UPDATE SET
+          name = excluded.name,
           quantity = excluded.quantity,
           avg_price = excluded.avg_price,
           market_price = CASE WHEN excluded.market_price > 0 THEN excluded.market_price ELSE holdings.market_price END,
@@ -156,7 +161,6 @@ export function importBrokerCsv(
       for (const [_, h] of holdingsMap) {
         if (h.totalQty > 0) {
           const avgPrice = h.totalQty > 0 ? h.totalCost / h.totalQty : 0;
-          // If market price is 0 from transaction history, default it to avgPrice so current value equals cost basis until live price sync
           const marketPrice = h.marketPrice > 0 ? h.marketPrice : avgPrice;
 
           db.run(upsertSql, [
