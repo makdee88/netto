@@ -198,6 +198,15 @@ export interface HistoricalTimelinePoint {
   fdAndPropValue: number;// Fixed Deposits + Real Estate portion
 }
 
+interface RunningPos {
+  broker: string;
+  symbol: string;
+  currency: string;
+  qty: number;
+  cost: number;
+  lastKnownPrice: number;
+}
+
 /**
  * Reconstructs historical portfolio growth from stored transactions,
  * Fixed Deposit start dates, and Real Estate acquisition dates.
@@ -214,7 +223,6 @@ export function getHistoricalPortfolioTimeline(
     return inSek / (fxRates[baseCurrency] || 1);
   };
 
-  // 1. Load all transactions chronologically
   const stmt = db.prepare(`SELECT * FROM transactions ORDER BY tx_date ASC, id ASC`);
   const txs: TransactionRow[] = [];
   while (stmt.step()) {
@@ -224,7 +232,6 @@ export function getHistoricalPortfolioTimeline(
 
   const fds = holdings.filter((h) => h.category === 'FIXED_DEPOSIT' && h.start_date);
 
-  // 2. Find earliest date across transactions, FDs, and properties
   const candidateDates: string[] = [];
   if (txs.length > 0 && txs[0].tx_date) candidateDates.push(txs[0].tx_date.slice(0, 10));
   for (const fd of fds) {
@@ -248,7 +255,6 @@ export function getHistoricalPortfolioTimeline(
   const endYear = now.getFullYear();
   const endMonth = now.getMonth() + 1;
 
-  // Build list of YYYY-MM checkpoints from start to current month
   const monthCheckpoints: Array<{ ym: string; endOfMonthDate: string; isCurrentMonth: boolean }> = [];
   let y = startYear;
   let m = startMonth;
@@ -267,7 +273,6 @@ export function getHistoricalPortfolioTimeline(
     }
   }
 
-  // Map current live prices from holdings table for the final "Today" point
   const liveHoldingPrices = new Map<string, number>();
   for (const h of holdings) {
     if (h.category === 'EQUITY') {
@@ -276,23 +281,13 @@ export function getHistoricalPortfolioTimeline(
     }
   }
 
-  interfaceRunningPos {
-    broker: string;
-    symbol: string;
-    currency: string;
-    qty: number;
-    cost: number;
-    lastKnownPrice: number;
-  }
-
-  const runningPositions = new Map<string, interfaceRunningPos>();
+  const runningPositions = new Map<string, RunningPos>();
   let txIndex = 0;
 
   const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const timeline: HistoricalTimelinePoint[] = [];
 
   for (const cp of monthCheckpoints) {
-    // Advance transactions up to the end of this month
     while (txIndex < txs.length && txs[txIndex].tx_date.slice(0, 10) <= cp.endOfMonthDate) {
       const tx = txs[txIndex];
       const key = `${tx.broker}|${tx.symbol}`;
@@ -329,7 +324,6 @@ export function getHistoricalPortfolioTimeline(
       txIndex++;
     }
 
-    // 1. Sum Equities at checkpoint
     let equitiesCostBase = 0;
     let equitiesMarketBase = 0;
     for (const [key, pos] of runningPositions) {
@@ -342,7 +336,6 @@ export function getHistoricalPortfolioTimeline(
       }
     }
 
-    // 2. Sum Fixed Deposits active at checkpoint
     let fdCostBase = 0;
     let fdValBase = 0;
     const cpTimestamp = cp.isCurrentMonth
@@ -363,14 +356,12 @@ export function getHistoricalPortfolioTimeline(
       }
     }
 
-    // 3. Sum Properties owned at checkpoint
     let propCostBase = 0;
     let propValBase = 0;
     for (const p of properties) {
       const propYm = `${p.buy_year}-${String(p.buy_month).padStart(2, '0')}`;
       if (propYm <= cp.ym) {
         propCostBase += convertToBase(p.buy_price, p.currency);
-        // Interpolate property appreciation linearly from buy month to current month
         const startPropTs = new Date(`${propYm}-01T00:00:00Z`).getTime();
         const totalDuration = Math.max(1, Date.now() - startPropTs);
         const elapsed = Math.min(totalDuration, Math.max(0, cpTimestamp - startPropTs));
