@@ -31,15 +31,19 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
   return (
     <div className={`min-h-screen ${isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
-      {/* Navbar with Larger Netto Brand & Clean Subtitle */}
+      {/* Navbar with Widened Netto Logo & Fixed Light Mode Readability */}
       <nav className={`max-w-7xl mx-auto px-6 py-4 flex justify-between items-center border-b ${isDark ? 'border-slate-900' : 'border-slate-200'}`}>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3.5">
           <div className="p-3 rounded-2xl bg-indigo-500/15 border border-indigo-500/30 text-indigo-400">
             <ShieldCheck className="w-7 h-7" />
           </div>
           <div>
-            <span className="text-2xl font-black tracking-tight text-white">netto</span>
-            <p className="text-xs opacity-70 font-medium">Private Wealth Tracker</p>
+            <span className={`text-3xl font-black tracking-wider ${isDark ? 'text-white' : 'text-slate-900'}`}>
+              netto
+            </span>
+            <p className={`text-[11px] font-semibold tracking-widest uppercase ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+              Private Wealth Tracker
+            </p>
           </div>
         </div>
 
@@ -71,7 +75,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-xs font-medium">
           <Sparkles className="w-3.5 h-3.5" /> Track All Global Investments & Savings in One Place
         </div>
-        <h1 className="text-4xl md:text-6xl font-extrabold tracking-tight max-w-3xl mx-auto leading-tight">
+        <h1 className={`text-4xl md:text-6xl font-extrabold tracking-tight max-w-3xl mx-auto leading-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
           Your Complete Net Worth.{' '}
           <span className="bg-gradient-to-r from-indigo-400 via-sky-400 to-emerald-400 bg-clip-text text-transparent">
             No Corporate Cloud.
@@ -90,14 +94,16 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <span className="text-xs uppercase tracking-widest text-indigo-400 font-bold">
               Simple & Secure by Design
             </span>
-            <h2 className="text-2xl md:text-3xl font-bold">How Your Privacy Is Protected</h2>
+            <h2 className={`text-2xl md:text-3xl font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+              How Your Privacy Is Protected
+            </h2>
             <p className={`text-xs max-w-xl mx-auto ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
               Netto has zero servers storing your financial records. Everything happens locally on your device.
             </p>
           </div>
 
           <div className="grid md:grid-cols-3 gap-6">
-            <div className={`border rounded-2xl p-6 space-y-3 ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+            <div className={`border rounded-2xl p-6 space-y-3 ${isDark ? 'bg-slate-950 border-slate-800 text-slate-100' : 'bg-slate-50 border-slate-200 text-slate-900'}`}>
               <div className="flex justify-between items-center">
                 <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-blue-500/15 text-blue-400">
                   1. IMPORT
@@ -111,7 +117,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               </p>
             </div>
 
-            <div className={`border rounded-2xl p-6 space-y-3 ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+            <div className={`border rounded-2xl p-6 space-y-3 ${isDark ? 'bg-slate-950 border-slate-800 text-slate-100' : 'bg-slate-50 border-slate-200 text-slate-900'}`}>
               <div className="flex justify-between items-center">
                 <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400">
                   2. LOCK
@@ -125,7 +131,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               </p>
             </div>
 
-            <div className={`border rounded-2xl p-6 space-y-3 ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+            <div className={`border rounded-2xl p-6 space-y-3 ${isDark ? 'bg-slate-950 border-slate-800 text-slate-100' : 'bg-slate-50 border-slate-200 text-slate-900'}`}>
               <div className="flex justify-between items-center">
                 <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400">
                   3. SYNC
@@ -145,7 +151,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       {/* Call-to-action */}
       <section className="max-w-4xl mx-auto px-6 py-12 text-center">
         <div className="bg-gradient-to-br from-indigo-950 via-slate-900 to-slate-900 border border-indigo-500/40 rounded-3xl p-8 md:p-12 space-y-6 shadow-2xl text-white">
-          <h2 className="text-2xl md:text-3xl font-extrabold">Ready to Take Control of Your Net Worth?</h2>
+          <h2 className="text-2xl md:text-3xl font-extrabold text-white">Ready to Take Control of Your Net Worth?</h2>
           <p className="text-sm text-slate-300 max-w-xl mx-auto">
             Takes 30 seconds to set up. Free, open, and private forever.
           </p>
