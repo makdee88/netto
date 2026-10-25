@@ -15,7 +15,7 @@ export async function syncToGoogleDrive(accessToken: string, encryptedBytes: Uin
 
   const form = new FormData();
   form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
-  form.append('file', new Blob([encryptedBytes], { type: 'application/octet-stream' }));
+  form.append('file', new Blob([encryptedBytes as any], { type: 'application/octet-stream' }));
 
   const uploadUrl = existingFileId
     ? `https://www.googleapis.com/upload/drive/v3/files/${existingFileId}?uploadType=multipart`
