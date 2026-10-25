@@ -4,7 +4,7 @@ export interface Env {
   };
 }
 
-export const onRequestGet: PagesFunction<Env> = async (context) => {
+export const onRequestGet = async (context: any) => {
   const { request, env } = context;
   const url = new URL(request.url);
   const symbolsParam = url.searchParams.get('symbols') || '';

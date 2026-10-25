@@ -228,10 +228,10 @@ export default function App() {
     });
   };
 
-  const downloadEncryptedFile = async () => {
+ const downloadEncryptedFile = async () => {
     if (!db) return;
     const encrypted = await encryptSqliteBytes(db.export(), passphrase);
-    const blob = new Blob([encrypted], { type: 'application/octet-stream' });
+    const blob = new Blob([encrypted.buffer as ArrayBuffer], { type: 'application/octet-stream' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = `netto_${new Date().toISOString().slice(0, 10)}.sqlite.enc`;
