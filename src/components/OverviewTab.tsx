@@ -4,12 +4,14 @@ import {
   PieChart,
   ShieldCheck,
   ServerOff,
-  FileSpreadsheet,
   PlusCircle,
-  ExternalLink,
+  Building2,
+  CreditCard,
+  ArrowUpRight,
+  ArrowDownRight,
 } from 'lucide-react';
-import { calculateFDCurrentValue, getSnapshots } from '../db/database';
-import { CurrencyCode, HoldingRow } from '../types';
+import { calculateFDCurrentValue, getSnapshots, getProperties, getLiabilities } from '../db/database';
+import { CurrencyCode, HoldingRow, PropertyRow, LiabilityRow } from '../types';
 import type { Database } from 'sql.js';
 
 interface OverviewTabProps {
@@ -33,100 +35,118 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
 }) => {
   const isDark = theme === 'dark';
   const snapshots = getSnapshots(db);
+  const properties: PropertyRow[] = getProperties(db);
+  const liabilities: LiabilityRow[] = getLiabilities(db);
 
   const convertToBase = (amount: number, fromCurrency: string): number => {
     const inSek = amount * (fxRates[fromCurrency] || 1);
     return inSek / (fxRates[baseCurrency] || 1);
   };
 
-  const totalNetWorth = holdings.reduce((sum, h) => {
+  // 1. Total Financial Assets (Equities + FDs)
+  const totalFinancialAssets = holdings.reduce((sum, h) => {
     const nativeVal = h.category === 'FIXED_DEPOSIT' ? calculateFDCurrentValue(h) : h.quantity * h.market_price;
     return sum + convertToBase(nativeVal, h.currency);
   }, 0);
 
-  // Calculate asset class breakdown
-  const breakdown: Record<string, number> = {};
-  for (const h of holdings) {
-    const nativeVal = h.category === 'FIXED_DEPOSIT' ? calculateFDCurrentValue(h) : h.quantity * h.market_price;
-    const valBase = convertToBase(nativeVal, h.currency);
-    const key = h.category === 'FIXED_DEPOSIT' ? 'Fixed Deposits / Savings' : 'Equities & ETFs';
-    breakdown[key] = (breakdown[key] || 0) + valBase;
-  }
+  // 2. Total Real Estate / Properties
+  const totalRealEstate = properties.reduce((sum, p) => {
+    return sum + convertToBase(p.current_price, p.currency);
+  }, 0);
+
+  const totalAssets = totalFinancialAssets + totalRealEstate;
+
+  // 3. Total Liabilities
+  const totalLiabilities = liabilities.reduce((sum, l) => {
+    return sum + convertToBase(l.remaining_balance, l.currency);
+  }, 0);
+
+  const netWorth = totalAssets - totalLiabilities;
+  const debtToAssetRatio = totalAssets > 0 ? (totalLiabilities / totalAssets) * 100 : 0;
+
+  // Asset Allocation Breakdown
+  const breakdown: Record<string, number> = {
+    'Equities & ETFs': holdings.filter(h => h.category !== 'FIXED_DEPOSIT').reduce((s, h) => s + convertToBase(h.quantity * h.market_price, h.currency), 0),
+    'Fixed Deposits & Savings': holdings.filter(h => h.category === 'FIXED_DEPOSIT').reduce((s, h) => s + convertToBase(calculateFDCurrentValue(h), h.currency), 0),
+    'Real Estate & Land': totalRealEstate,
+  };
 
   return (
     <div className="space-y-6">
-      {/* Net Worth Hero & Quick Actions */}
-      <div className="grid md:grid-cols-3 gap-6">
-        <div className={`md:col-span-2 border p-6 rounded-2xl flex flex-col justify-between shadow-sm ${isDark ? 'bg-gradient-to-r from-indigo-950 via-slate-900 to-slate-900 border-indigo-500/30' : 'bg-gradient-to-r from-indigo-50 via-white to-white border-indigo-200'}`}>
-          <div>
-            <span className="text-xs uppercase tracking-widest text-indigo-500 font-semibold">Total Netto Worth</span>
-            <div className={`text-4xl font-extrabold mt-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>
-              {Math.round(totalNetWorth).toLocaleString()} <span className="text-indigo-400">{baseCurrency}</span>
-            </div>
+      {/* Financial Health Summary Cards */}
+      <div className="grid md:grid-cols-4 gap-4">
+        <div className={`border p-5 rounded-2xl shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+          <span className="text-[11px] uppercase tracking-wider opacity-60 font-semibold">Net Worth</span>
+          <div className="text-2xl font-extrabold mt-1 text-indigo-400">
+            {Math.round(netWorth).toLocaleString()} {baseCurrency}
           </div>
-          <div className="flex flex-wrap items-center justify-between gap-4 mt-6 pt-4 border-t border-indigo-500/20">
-            <p className="text-xs opacity-70">
-              Real-time multi-currency consolidation across global brokerages and bank savings.
-            </p>
-            <button
-              onClick={onGoToManage}
-              className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-4 py-2 rounded-xl shadow transition"
-            >
-              <PlusCircle className="w-4 h-4" /> Manage / Add Assets
-            </button>
-          </div>
+          <span className="text-[10px] opacity-60">Total Assets minus Liabilities</span>
         </div>
 
-        <div className={`border p-5 rounded-2xl space-y-3 text-xs shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
-          <div className="flex items-center gap-2 font-semibold text-emerald-500">
-            <ShieldCheck className="w-4 h-4" /> Zero-Knowledge Privacy
+        <div className={`border p-5 rounded-2xl shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+          <span className="text-[11px] uppercase tracking-wider opacity-60 font-semibold">Total Gross Assets</span>
+          <div className="text-2xl font-extrabold mt-1 text-emerald-400 flex items-center gap-1">
+            <ArrowUpRight className="w-5 h-5" /> {Math.round(totalAssets).toLocaleString()} {baseCurrency}
           </div>
-          <p className="opacity-75 leading-relaxed">
-            All calculations run locally in browser WebAssembly. Your portfolio rows never touch our servers.
-          </p>
-          <button onClick={onOpenPrivacyModal} className="text-indigo-500 hover:underline font-medium inline-block">
-            Inspect security details →
-          </button>
+          <span className="text-[10px] opacity-60">Equities, FDs & Properties</span>
+        </div>
+
+        <div className={`border p-5 rounded-2xl shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+          <span className="text-[11px] uppercase tracking-wider opacity-60 font-semibold">Total Liabilities</span>
+          <div className="text-2xl font-extrabold mt-1 text-rose-400 flex items-center gap-1">
+            <ArrowDownRight className="w-5 h-5" /> {Math.round(totalLiabilities).toLocaleString()} {baseCurrency}
+          </div>
+          <span className="text-[10px] opacity-60">Mortgages & Loans</span>
+        </div>
+
+        <div className={`border p-5 rounded-2xl shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+          <span className="text-[11px] uppercase tracking-wider opacity-60 font-semibold">Debt-to-Asset Ratio</span>
+          <div className={`text-2xl font-extrabold mt-1 ${debtToAssetRatio > 50 ? 'text-rose-400' : 'text-indigo-400'}`}>
+            {debtToAssetRatio.toFixed(1)}%
+          </div>
+          <span className="text-[10px] opacity-60">{debtToAssetRatio < 40 ? 'Healthy Leverage' : 'High Leverage'}</span>
         </div>
       </div>
 
-      {/* Analytics & Growth Over Time Section */}
+      {/* Analytics & Growth Over Time Section (Assets vs Liabilities Trajectory) */}
       <div className="grid md:grid-cols-2 gap-6">
-        {/* Growth Over Time Chart (SVG Trend) */}
         <div className={`border p-6 rounded-2xl space-y-4 shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <TrendingUp className="w-5 h-5 text-indigo-400" />
-              <h2 className="font-bold text-base">Net Worth Growth Trajectory</h2>
+              <h2 className="font-bold text-base">Assets vs. Liabilities Trajectory</h2>
             </div>
-            <span className="text-[11px] opacity-60">Historical Snapshots</span>
+            <button onClick={onGoToManage} className="text-xs text-indigo-400 hover:underline font-semibold flex items-center gap-1">
+              <PlusCircle className="w-3.5 h-3.5" /> Add Asset/Liability
+            </button>
           </div>
 
           {snapshots.length < 2 ? (
             <div className="h-44 flex flex-col items-center justify-center text-center opacity-60 text-xs space-y-1">
-              <p>Growth analytics populate automatically as you update prices or import files over multiple days.</p>
-              <span className="text-[10px] text-indigo-400">Current recorded snapshot: {Math.round(totalNetWorth).toLocaleString()} {baseCurrency}</span>
+              <p>Historical trends populate automatically as you record snapshots over time.</p>
+              <span className="text-[10px] text-indigo-400">Current Net Worth: {Math.round(netWorth).toLocaleString()} {baseCurrency}</span>
             </div>
           ) : (
             <div className="space-y-3">
               <div className="h-40 flex items-end gap-2 pt-4 px-2 border-b border-slate-800">
                 {snapshots.map((s, idx) => {
-                  const maxVal = Math.max(...snapshots.map((x) => x.value), 1);
-                  const heightPct = Math.max(15, (s.value / maxVal) * 100);
+                  const maxVal = Math.max(...snapshots.map((x) => x.assets), 1);
+                  const assetH = Math.max(10, (s.assets / maxVal) * 100);
+                  const liabH = Math.max(5, (s.liabilities / maxVal) * 100);
                   return (
                     <div key={idx} className="flex-1 flex flex-col items-center gap-1 group relative">
-                      <div
-                        style={{ height: `${heightPct}%` }}
-                        className="w-full bg-indigo-600 hover:bg-indigo-500 rounded-t transition-all"
-                      />
+                      <div className="w-full flex items-end gap-0.5 h-full">
+                        <div style={{ height: `${assetH}%` }} className="w-1/2 bg-emerald-500 rounded-t" title={`Assets: ${Math.round(s.assets)}`} />
+                        <div style={{ height: `${liabH}%` }} className="w-1/2 bg-rose-500 rounded-t" title={`Liabilities: ${Math.round(s.liabilities)}`} />
+                      </div>
                       <span className="text-[9px] opacity-60 truncate">{s.date.slice(5)}</span>
                     </div>
                   );
                 })}
               </div>
               <div className="flex justify-between items-center text-xs opacity-75">
-                <span>Start: {snapshots[0]?.date}</span>
-                <span className="font-bold text-indigo-400">Latest: {Math.round(totalNetWorth).toLocaleString()} {baseCurrency}</span>
+                <span className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block" /> Assets</span>
+                <span className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block" /> Liabilities</span>
               </div>
             </div>
           )}
@@ -136,15 +156,15 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         <div className={`border p-6 rounded-2xl space-y-4 shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
           <div className="flex items-center gap-2">
             <PieChart className="w-5 h-5 text-emerald-400" />
-            <h2 className="font-bold text-base">Asset Class Allocation</h2>
+            <h2 className="font-bold text-base">Gross Asset Allocation</h2>
           </div>
 
           <div className="space-y-3 pt-2">
-            {Object.keys(breakdown).length === 0 ? (
-              <p className="text-xs opacity-60 text-center py-12">No asset allocation data yet.</p>
+            {totalAssets === 0 ? (
+              <p className="text-xs opacity-60 text-center py-12">No assets recorded yet.</p>
             ) : (
               Object.entries(breakdown).map(([category, val]) => {
-                const pct = totalNetWorth > 0 ? (val / totalNetWorth) * 100 : 0;
+                const pct = totalAssets > 0 ? (val / totalAssets) * 100 : 0;
                 return (
                   <div key={category} className="space-y-1 text-xs">
                     <div className="flex justify-between font-medium">
@@ -156,7 +176,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                     <div className={`w-full h-2.5 rounded-full overflow-hidden ${isDark ? 'bg-slate-950' : 'bg-slate-100'}`}>
                       <div
                         style={{ width: `${pct}%` }}
-                        className={`h-full rounded-full ${category.includes('Fixed') ? 'bg-emerald-500' : 'bg-indigo-500'}`}
+                        className={`h-full rounded-full ${category.includes('Real') ? 'bg-amber-500' : category.includes('Fixed') ? 'bg-emerald-500' : 'bg-indigo-500'}`}
                       />
                     </div>
                   </div>
@@ -167,53 +187,90 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         </div>
       </div>
 
-      {/* Consolidated Holdings Table */}
+      {/* Properties & Real Estate Table */}
       <div className={`border rounded-2xl overflow-hidden shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
         <div className="p-4 border-b flex justify-between items-center">
-          <h3 className="font-bold text-sm">Consolidated Portfolio Holdings</h3>
-          <button onClick={onGoToManage} className="text-xs text-indigo-400 hover:underline font-semibold">
-            + Add or Edit Holdings
-          </button>
+          <div className="flex items-center gap-2">
+            <Building2 className="w-4 h-4 text-amber-400" />
+            <h3 className="font-bold text-sm">Real Estate & Properties</h3>
+          </div>
+          <button onClick={onGoToManage} className="text-xs text-indigo-400 hover:underline font-semibold">+ Add Property</button>
         </div>
         <table className="w-full text-left text-xs">
           <thead className={`border-b uppercase tracking-wider ${isDark ? 'bg-slate-950/80 border-slate-800 text-slate-400' : 'bg-slate-100 border-slate-200 text-slate-600'}`}>
             <tr>
-              <th className="p-4">Broker / Bank</th>
-              <th className="p-4">Asset</th>
-              <th className="p-4">Category</th>
-              <th className="p-4">Qty / Principal</th>
-              <th className="p-4">Market Price / Rate</th>
-              <th className="p-4">Current Native Value</th>
-              <th className="p-4">Value ({baseCurrency})</th>
+              <th className="p-4">Property Name</th>
+              <th className="p-4">Type</th>
+              <th className="p-4">Acquisition (MM/YYYY)</th>
+              <th className="p-4">Buy Price</th>
+              <th className="p-4">Current Valuation</th>
+              <th className="p-4 text-right">Gain / Loss</th>
             </tr>
           </thead>
           <tbody className={`divide-y ${isDark ? 'divide-slate-800/70' : 'divide-slate-200'}`}>
-            {holdings.length === 0 ? (
+            {properties.length === 0 ? (
               <tr>
-                <td colSpan={7} className="p-10 text-center opacity-60">
-                  No holdings found. Click <b>Manage / Add Assets</b> to import your broker CSV or add savings.
-                </td>
+                <td colSpan={6} className="p-8 text-center opacity-60">No properties added yet.</td>
               </tr>
             ) : (
-              holdings.map((h) => {
-                const isFD = h.category === 'FIXED_DEPOSIT';
-                const nativeVal = isFD ? calculateFDCurrentValue(h) : h.quantity * h.market_price;
-                const baseVal = convertToBase(nativeVal, h.currency);
+              properties.map((p) => {
+                const curBase = convertToBase(p.current_price, p.currency);
+                const buyBase = convertToBase(p.buy_price, p.currency);
+                const gain = curBase - buyBase;
+                const gainPct = buyBase > 0 ? (gain / buyBase) * 100 : 0;
                 return (
-                  <tr key={h.id} className={isDark ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}>
-                    <td className="p-4 font-semibold">{h.broker}</td>
-                    <td className="p-4">
-                      <span className="font-medium">{h.name}</span> <span className="opacity-60">({h.symbol})</span>
+                  <tr key={p.id} className={isDark ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}>
+                    <td className="p-4 font-semibold">{p.name}</td>
+                    <td className="p-4 uppercase text-[10px] font-bold">{p.property_type}</td>
+                    <td className="p-4 opacity-80">{p.buy_month}/{p.buy_year}</td>
+                    <td className="p-4 opacity-80">{Math.round(buyBase).toLocaleString()} {baseCurrency}</td>
+                    <td className="p-4 font-bold text-emerald-400">{Math.round(curBase).toLocaleString()} {baseCurrency}</td>
+                    <td className={`p-4 text-right font-semibold ${gain >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                      {gain >= 0 ? '+' : ''}{Math.round(gain).toLocaleString()} ({gainPct.toFixed(1)}%)
                     </td>
-                    <td className="p-4">
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${isFD ? 'bg-emerald-500/15 text-emerald-400' : 'bg-indigo-500/15 text-indigo-400'}`}>
-                        {h.category}
-                      </span>
-                    </td>
-                    <td className="p-4 opacity-90">{isFD ? `${h.principal.toLocaleString()} ${h.currency}` : h.quantity}</td>
-                    <td className="p-4 opacity-90">{isFD ? `${h.interest_rate}%` : `${h.market_price} ${h.currency}`}</td>
-                    <td className="p-4 font-medium">{Math.round(nativeVal).toLocaleString()} {h.currency}</td>
-                    <td className="p-4 font-bold text-indigo-400">{Math.round(baseVal).toLocaleString()} {baseCurrency}</td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Liabilities & Loans Table */}
+      <div className={`border rounded-2xl overflow-hidden shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+        <div className="p-4 border-b flex justify-between items-center">
+          <div className="flex items-center gap-2">
+            <CreditCard className="w-4 h-4 text-rose-400" />
+            <h3 className="font-bold text-sm">Liabilities & Outstanding Loans</h3>
+          </div>
+          <button onClick={onGoToManage} className="text-xs text-indigo-400 hover:underline font-semibold">+ Add Liability</button>
+        </div>
+        <table className="w-full text-left text-xs">
+          <thead className={`border-b uppercase tracking-wider ${isDark ? 'bg-slate-950/80 border-slate-800 text-slate-400' : 'bg-slate-100 border-slate-200 text-slate-600'}`}>
+            <tr>
+              <th className="p-4">Loan Name</th>
+              <th className="p-4">Type</th>
+              <th className="p-4">Interest Rate</th>
+              <th className="p-4">Original Loan</th>
+              <th className="p-4 text-right">Remaining Balance</th>
+            </tr>
+          </thead>
+          <tbody className={`divide-y ${isDark ? 'divide-slate-800/70' : 'divide-slate-200'}`}>
+            {liabilities.length === 0 ? (
+              <tr>
+                <td colSpan={5} className="p-8 text-center opacity-60">No liabilities recorded yet.</td>
+              </tr>
+            ) : (
+              liabilities.map((l) => {
+                const remBase = convertToBase(l.remaining_balance, l.currency);
+                const origBase = convertToBase(l.total_loan, l.currency);
+                return (
+                  <tr key={l.id} className={isDark ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}>
+                    <td className="p-4 font-semibold">{l.name}</td>
+                    <td className="p-4 uppercase text-[10px] font-bold">{l.liability_type}</td>
+                    <td className="p-4 text-amber-400 font-semibold">{l.interest_rate}%</td>
+                    <td className="p-4 opacity-80">{Math.round(origBase).toLocaleString()} {baseCurrency}</td>
+                    <td className="p-4 text-right font-bold text-rose-400">{Math.round(remBase).toLocaleString()} {baseCurrency}</td>
                   </tr>
                 );
               })

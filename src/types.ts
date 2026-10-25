@@ -1,5 +1,7 @@
 export type BrokerType = 'AVANZA' | 'NORDNET' | 'ZERODHA' | 'UPSTOX' | 'IBKR';
 export type AssetCategory = 'EQUITY' | 'FIXED_DEPOSIT';
+export type PropertyType = 'APARTMENT' | 'LAND' | 'HOUSE' | 'COMMERCIAL';
+export type LiabilityType = 'MORTGAGE' | 'CAR_LOAN' | 'PERSONAL_LOAN' | 'CREDIT_CARD';
 export type CurrencyCode = 'SEK' | 'INR' | 'USD' | 'EUR';
 
 export interface HoldingRow {
@@ -18,6 +20,27 @@ export interface HoldingRow {
   start_date: string;
   maturity_date: string;
   updated_at: string;
+}
+
+export interface PropertyRow {
+  id: number;
+  name: string;
+  property_type: PropertyType;
+  currency: CurrencyCode;
+  buy_price: number;
+  buy_month: number;
+  buy_year: number;
+  current_price: number;
+}
+
+export interface LiabilityRow {
+  id: number;
+  name: string;
+  liability_type: LiabilityType;
+  currency: CurrencyCode;
+  total_loan: number;
+  remaining_balance: number;
+  interest_rate: number;
 }
 
 declare global {

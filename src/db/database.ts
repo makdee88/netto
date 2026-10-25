@@ -1,7 +1,7 @@
 import initSqlJs from 'sql.js';
 import type { Database } from 'sql.js';
 import sqlWasmUrl from 'sql.js/dist/sql-wasm.wasm?url';
-import { HoldingRow } from '../types';
+import { HoldingRow, PropertyRow, LiabilityRow } from '../types';
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS app_config (
@@ -28,9 +28,34 @@ const SCHEMA = `
     UNIQUE(broker, symbol)
   );
 
+  CREATE TABLE IF NOT EXISTS properties (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    property_type TEXT NOT NULL, -- 'APARTMENT', 'LAND', 'HOUSE', 'COMMERCIAL'
+    currency TEXT NOT NULL,
+    buy_price REAL NOT NULL,
+    buy_month INTEGER NOT NULL,
+    buy_year INTEGER NOT NULL,
+    current_price REAL NOT NULL,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS liabilities (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    liability_type TEXT NOT NULL, -- 'MORTGAGE', 'CAR_LOAN', 'PERSONAL_LOAN', 'CREDIT_CARD'
+    currency TEXT NOT NULL,
+    total_loan REAL NOT NULL,
+    remaining_balance REAL NOT NULL,
+    interest_rate REAL NOT NULL,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+  );
+
   CREATE TABLE IF NOT EXISTS networth_snapshots (
     snapshot_date TEXT PRIMARY KEY,
-    total_value_sek REAL NOT NULL
+    total_assets_sek REAL NOT NULL,
+    total_liabilities_sek REAL NOT NULL,
+    net_worth_sek REAL NOT NULL
   );
 `;
 
@@ -50,22 +75,39 @@ export async function initDatabase(savedBytes?: Uint8Array): Promise<Database> {
   return db;
 }
 
-export function recordSnapshot(db: Database, totalValueSek: number) {
+export function recordSnapshot(db: Database, totalAssets: number, totalLiabilities: number) {
   const today = new Date().toISOString().slice(0, 10);
+  const netWorth = totalAssets - totalLiabilities;
   db.run(
-    `INSERT INTO networth_snapshots (snapshot_date, total_value_sek) VALUES (?, ?)
-     ON CONFLICT(snapshot_date) DO UPDATE SET total_value_sek = excluded.total_value_sek`,
-    [today, totalValueSek]
+    `INSERT INTO networth_snapshots (snapshot_date, total_assets_sek, total_liabilities_sek, net_worth_sek) VALUES (?, ?, ?, ?)
+     ON CONFLICT(snapshot_date) DO UPDATE SET total_assets_sek = excluded.total_assets_sek, total_liabilities_sek = excluded.total_liabilities_sek, net_worth_sek = excluded.net_worth_sek`,
+    [today, totalAssets, totalLiabilities, netWorth]
   );
 }
 
-export function getSnapshots(db: Database): Array<{ date: string; value: number }> {
-  const stmt = db.prepare('SELECT snapshot_date, total_value_sek FROM networth_snapshots ORDER BY snapshot_date ASC');
-  const rows: Array<{ date: string; value: number }> = [];
+export function getSnapshots(db: Database): Array<{ date: string; assets: number; liabilities: number; netWorth: number }> {
+  const stmt = db.prepare('SELECT snapshot_date, total_assets_sek, total_liabilities_sek, net_worth_sek FROM networth_snapshots ORDER BY snapshot_date ASC');
+  const rows: Array<{ date: string; assets: number; liabilities: number; netWorth: number }> = [];
   while (stmt.step()) {
     const r = stmt.getAsObject();
-    rows.push({ date: r.snapshot_date, value: r.total_value_sek });
+    rows.push({ date: r.snapshot_date, assets: r.total_assets_sek, liabilities: r.total_liabilities_sek, netWorth: r.net_worth_sek });
   }
+  stmt.free();
+  return rows;
+}
+
+export function getProperties(db: Database): PropertyRow[] {
+  const stmt = db.prepare('SELECT * FROM properties ORDER BY name');
+  const rows: PropertyRow[] = [];
+  while (stmt.step()) rows.push(stmt.getAsObject() as unknown as PropertyRow);
+  stmt.free();
+  return rows;
+}
+
+export function getLiabilities(db: Database): LiabilityRow[] {
+  const stmt = db.prepare('SELECT * FROM liabilities ORDER BY name');
+  const rows: LiabilityRow[] = [];
+  while (stmt.step()) rows.push(stmt.getAsObject() as unknown as LiabilityRow);
   stmt.free();
   return rows;
 }

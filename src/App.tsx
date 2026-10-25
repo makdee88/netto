@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import type { Database } from 'sql.js';
-import { initDatabase, recordSnapshot } from './db/database';
+import { initDatabase, recordSnapshot, getProperties, getLiabilities } from './db/database';
 import {
   encryptSqliteBytes,
   decryptSqliteBytes,
@@ -9,7 +9,7 @@ import {
 } from './crypto/vaultCrypto';
 import { importBrokerCsv } from './parsers/csvImporter';
 import { syncToGoogleDrive, loadFromGoogleDrive } from './sync/googleDrive';
-import { BrokerType, CurrencyCode, HoldingRow } from './types';
+import { BrokerType, CurrencyCode, HoldingRow, PropertyType, LiabilityType } from './types';
 import { LandingPage } from './components/LandingPage';
 import { VaultAuthScreen, AuthMode } from './components/VaultAuthScreen';
 import { OverviewTab } from './components/OverviewTab';
@@ -76,13 +76,26 @@ export default function App() {
     stmt.free();
     setHoldings(rows);
 
-    // Calculate total base currency and record historical snapshot
-    const total = rows.reduce((sum, h) => {
+    // Calculate Assets vs Liabilities and record historical snapshot
+    const totalAssets = rows.reduce((sum, h) => {
       const nativeVal = h.category === 'FIXED_DEPOSIT' ? h.principal : h.quantity * h.market_price;
       const inSek = nativeVal * (fxRates[h.currency] || 1);
       return sum + inSek / (fxRates[baseCurrency] || 1);
     }, 0);
-    recordSnapshot(database, total);
+
+    const properties = getProperties(database);
+    const totalProps = properties.reduce((sum, p) => {
+      const inSek = p.current_price * (fxRates[p.currency] || 1);
+      return sum + inSek / (fxRates[baseCurrency] || 1);
+    }, 0);
+
+    const liabilities = getLiabilities(database);
+    const totalLiabs = liabilities.reduce((sum, l) => {
+      const inSek = l.remaining_balance * (fxRates[l.currency] || 1);
+      return sum + inSek / (fxRates[baseCurrency] || 1);
+    }, 0);
+
+    recordSnapshot(database, totalAssets + totalProps, totalLiabs);
   };
 
   const persistEncryptedVault = async (database: Database, activePass = passphrase) => {
@@ -218,7 +231,6 @@ export default function App() {
 
   return (
     <div className={`min-h-screen ${isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
-      {/* Top Header & Navigation */}
       <header className={`max-w-7xl mx-auto px-6 py-4 flex flex-wrap justify-between items-center gap-4 border-b ${isDark ? 'border-slate-800 bg-slate-900/80' : 'border-slate-200 bg-white shadow-sm'}`}>
         <div className="flex items-center gap-3">
           <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
@@ -241,7 +253,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* Dashboard Sub-Tab Switcher */}
         <div className="flex gap-1 bg-slate-950/20 p-1 rounded-xl text-xs font-semibold">
           <button
             onClick={() => setSubTab('OVERVIEW')}
@@ -335,7 +346,6 @@ export default function App() {
         </div>
       </header>
 
-      {/* Main Content Area: Sub-Tab Router */}
       <main className="max-w-7xl mx-auto p-6">
         {subTab === 'OVERVIEW' ? (
           <OverviewTab
@@ -349,6 +359,7 @@ export default function App() {
           />
         ) : (
           <ManageAssetsTab
+            db={db}
             holdings={holdings}
             theme={theme}
             onBackToOverview={() => setSubTab('OVERVIEW')}
@@ -381,10 +392,36 @@ export default function App() {
               await persistEncryptedVault(db);
               setStatusMsg(`Saved Fixed Deposit: ${fd.name}`);
             }}
+            onAddProperty={async (p) => {
+              db.run(
+                `INSERT INTO properties (name, property_type, currency, buy_price, buy_month, buy_year, current_price) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                [p.name, p.property_type, p.currency, p.buy_price, p.buy_month, p.buy_year, p.current_price]
+              );
+              await persistEncryptedVault(db);
+              setStatusMsg(`Saved Property: ${p.name}`);
+            }}
+            onAddLiability={async (l) => {
+              db.run(
+                `INSERT INTO liabilities (name, liability_type, currency, total_loan, remaining_balance, interest_rate) VALUES (?, ?, ?, ?, ?, ?)`,
+                [l.name, l.liability_type, l.currency, l.total_loan, l.remaining_balance, l.interest_rate]
+              );
+              await persistEncryptedVault(db);
+              setStatusMsg(`Saved Liability: ${l.name}`);
+            }}
             onDeleteHolding={async (id) => {
               db.run('DELETE FROM holdings WHERE id = ?', [id]);
               await persistEncryptedVault(db);
               setStatusMsg('Asset deleted successfully');
+            }}
+            onDeleteProperty={async (id) => {
+              db.run('DELETE FROM properties WHERE id = ?', [id]);
+              await persistEncryptedVault(db);
+              setStatusMsg('Property deleted successfully');
+            }}
+            onDeleteLiability={async (id) => {
+              db.run('DELETE FROM liabilities WHERE id = ?', [id]);
+              await persistEncryptedVault(db);
+              setStatusMsg('Liability deleted successfully');
             }}
           />
         )}
