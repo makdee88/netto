@@ -10,14 +10,16 @@ import {
   Globe2,
   Calendar,
   Layers,
+  ShoppingBag,
 } from 'lucide-react';
 import {
   calculateFDCurrentValue,
   getProperties,
   getLiabilities,
   getHistoricalPortfolioTimeline,
+  getAllTransactions,
 } from '../db/database';
-import { CurrencyCode, HoldingRow, PropertyRow, LiabilityRow } from '../types';
+import { CurrencyCode, HoldingRow, PropertyRow, LiabilityRow, TransactionRow } from '../types';
 import type { Database } from 'sql.js';
 
 interface OverviewTabProps {
@@ -31,6 +33,7 @@ interface OverviewTabProps {
 }
 
 type TimeframeRange = '1Y' | '3Y' | '5Y' | 'ALL';
+type FrequencyMode = 'MONTHLY' | 'YEARLY';
 
 export const OverviewTab: React.FC<OverviewTabProps> = ({
   db,
@@ -42,17 +45,19 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
 }) => {
   const isDark = theme === 'dark';
   const [range, setRange] = useState<TimeframeRange>('ALL');
+  const [frequency, setFrequency] = useState<FrequencyMode>('MONTHLY');
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+  const [selectedTx, setSelectedTx] = useState<TransactionRow | null>(null);
 
   const properties: PropertyRow[] = getProperties(db);
   const liabilities: LiabilityRow[] = getLiabilities(db);
+  const allTransactions: TransactionRow[] = getAllTransactions(db);
 
   const convertToBase = (amount: number, fromCurrency: string): number => {
     const inSek = amount * (fxRates[fromCurrency] || 1);
     return inSek / (fxRates[baseCurrency] || 1);
   };
 
-  // Calculate true current market value for holdings
   const holdingsWithValues = holdings.map((h) => {
     const isFD = h.category === 'FIXED_DEPOSIT';
     const effectiveMarketPrice = h.market_price > 0 ? h.market_price : h.avg_price;
@@ -78,16 +83,15 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
   const netWorth = totalAssets - totalLiabilities;
   const debtToAssetRatio = totalAssets > 0 ? (totalLiabilities / totalAssets) * 100 : 0;
 
-  // Reconstruct full historical timeline from transactions, FDs, and properties
-  const fullTimeline = getHistoricalPortfolioTimeline(db, holdings, properties, fxRates, baseCurrency);
+  // Pass frequency mode into timeline builder
+  const fullTimeline = getHistoricalPortfolioTimeline(db, holdings, properties, fxRates, baseCurrency, frequency);
 
   const filteredTimeline = (() => {
     if (range === 'ALL') return fullTimeline;
-    const monthsToKeep = range === '1Y' ? 12 : range === '3Y' ? 36 : 60;
-    return fullTimeline.slice(-monthsToKeep);
+    const limit = range === '1Y' ? (frequency === 'YEARLY' ? 1 : 12) : range === '3Y' ? (frequency === 'YEARLY' ? 3 : 36) : (frequency === 'YEARLY' ? 5 : 60);
+    return fullTimeline.slice(-limit);
   })();
 
-  // SVG Chart Geometry Helper
   const chartWidth = 600;
   const chartHeight = 200;
   const padLeft = 10;
@@ -104,10 +108,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
 
   const getPointCoords = (idx: number, val: number) => {
     const count = filteredTimeline.length;
-    const x =
-      count <= 1
-        ? padLeft + usableW / 2
-        : padLeft + (idx / (count - 1)) * usableW;
+    const x = count <= 1 ? padLeft + usableW / 2 : padLeft + (idx / (count - 1)) * usableW;
     const y = padTop + usableH - (val / maxChartVal) * usableH;
     return { x, y };
   };
@@ -130,12 +131,24 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
       ? costCoords.map((c, i) => `${i === 0 ? 'M' : 'L'} ${c.x.toFixed(1)} ${c.y.toFixed(1)}`).join(' ')
       : '';
 
+  const timelineStartDate = filteredTimeline[0]?.date ? `${filteredTimeline[0].date}-01` : '2000-01-01';
+  const timelineEndDate = filteredTimeline[filteredTimeline.length - 1]?.date ? `${filteredTimeline[filteredTimeline.length - 1].date}-31` : '2099-12-31';
+
+  const startMs = new Date(timelineStartDate).getTime();
+  const endMs = new Date(timelineEndDate).getTime();
+  const timeSpanMs = Math.max(1, endMs - startMs);
+
+  const getTxXCoord = (txDateStr: string) => {
+    const txMs = new Date(txDateStr.slice(0, 10)).getTime();
+    const pct = Math.max(0, Math.min(1, (txMs - startMs) / timeSpanMs));
+    return padLeft + pct * usableW;
+  };
+
   const activePoint =
     hoverIdx !== null && filteredTimeline[hoverIdx]
       ? filteredTimeline[hoverIdx]
       : filteredTimeline[filteredTimeline.length - 1] || null;
 
-  // Asset Class Allocation
   const assetBreakdown: Record<string, number> = {
     'Equities & Mutual Funds': holdingsWithValues
       .filter((h) => h.category !== 'FIXED_DEPOSIT')
@@ -193,9 +206,8 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         </div>
       </div>
 
-      {/* Analytics Row: Historical Portfolio Growth Trajectory + Asset Allocation */}
+      {/* Portfolio Growth Chart with Frequency Toggle */}
       <div className="grid md:grid-cols-3 gap-6">
-        {/* Portfolio Growth Over Time (Reconstructed from Transaction History) */}
         <div className={`md:col-span-2 border p-6 rounded-2xl space-y-4 shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
@@ -204,72 +216,87 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                 <h2 className="font-bold text-base">Portfolio Growth Over Time</h2>
               </div>
               <p className="text-[11px] opacity-60">
-                Reconstructed from your full transaction history, FDs, and real estate
+                Reconstructed from transaction history with investment execution markers
               </p>
             </div>
 
-            {/* Timeframe Selector */}
-            <div className={`flex gap-1 p-1 rounded-xl text-[11px] font-bold ${isDark ? 'bg-slate-950' : 'bg-slate-100'}`}>
-              {(['1Y', '3Y', '5Y', 'ALL'] as TimeframeRange[]).map((tf) => (
-                <button
-                  key={tf}
-                  onClick={() => setRange(tf)}
-                  className={`px-2.5 py-1 rounded-lg transition ${
-                    range === tf
-                      ? 'bg-indigo-600 text-white shadow'
-                      : 'opacity-60 hover:opacity-100'
-                  }`}
-                >
-                  {tf}
-                </button>
-              ))}
+            <div className="flex items-center gap-3">
+              {/* Frequency Toggle: Monthly vs Yearly */}
+              <div className={`flex gap-1 p-1 rounded-xl text-[10px] font-bold ${isDark ? 'bg-slate-950' : 'bg-slate-100'}`}>
+                {(['MONTHLY', 'YEARLY'] as FrequencyMode[]).map((mode) => (
+                  <button
+                    key={mode}
+                    onClick={() => setFrequency(mode)}
+                    className={`px-2.5 py-1 rounded-lg transition ${
+                      frequency === mode ? 'bg-emerald-600 text-white shadow' : 'opacity-60 hover:opacity-100'
+                    }`}
+                  >
+                    {mode === 'MONTHLY' ? 'Month-wise' : 'Year-wise'}
+                  </button>
+                ))}
+              </div>
+
+              {/* Timeframe Range */}
+              <div className={`flex gap-1 p-1 rounded-xl text-[11px] font-bold ${isDark ? 'bg-slate-950' : 'bg-slate-100'}`}>
+                {(['1Y', '3Y', '5Y', 'ALL'] as TimeframeRange[]).map((tf) => (
+                  <button
+                    key={tf}
+                    onClick={() => setRange(tf)}
+                    className={`px-2 py-1 rounded-lg transition ${
+                      range === tf ? 'bg-indigo-600 text-white shadow' : 'opacity-60 hover:opacity-100'
+                    }`}
+                  >
+                    {tf}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
-          {/* Live Hover / Latest Readout Banner */}
-          {activePoint && (
+          {selectedTx ? (
+            <div className="flex items-center justify-between gap-4 px-4 py-2.5 rounded-xl border text-xs bg-emerald-500/10 border-emerald-500/30 text-emerald-400">
+              <div className="flex items-center gap-2">
+                <ShoppingBag className="w-4 h-4 shrink-0" />
+                <span>
+                  <b>{selectedTx.tx_type}</b>: {selectedTx.name} ({selectedTx.quantity} @ {selectedTx.price} {selectedTx.currency}) on {selectedTx.tx_date.slice(0, 10)}
+                </span>
+              </div>
+              <button onClick={() => setSelectedTx(null)} className="text-[10px] underline font-bold">Close</button>
+            </div>
+          ) : activePoint ? (
             <div className={`flex flex-wrap items-center justify-between gap-4 px-4 py-2.5 rounded-xl border text-xs ${isDark ? 'bg-slate-950/70 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
               <div>
                 <span className="opacity-60 text-[10px] uppercase font-bold block">Period</span>
-                <span className="font-bold text-indigo-500">{activePoint.label} ({activePoint.date})</span>
+                <span className="font-bold text-indigo-500">{activePoint.label}</span>
               </div>
               <div>
                 <span className="opacity-60 text-[10px] uppercase font-bold block">Market Value</span>
-                <span className="font-extrabold">
-                  {Math.round(activePoint.portfolioValue).toLocaleString()} {baseCurrency}
-                </span>
+                <span className="font-extrabold">{Math.round(activePoint.portfolioValue).toLocaleString()} {baseCurrency}</span>
               </div>
               <div>
                 <span className="opacity-60 text-[10px] uppercase font-bold block">Invested Capital</span>
-                <span className="font-semibold text-emerald-500">
-                  {Math.round(activePoint.investedCost).toLocaleString()} {baseCurrency}
-                </span>
+                <span className="font-semibold text-emerald-500">{Math.round(activePoint.investedCost).toLocaleString()} {baseCurrency}</span>
               </div>
               <div>
-                <span className="opacity-60 text-[10px] uppercase font-bold block">Total Return</span>
+                <span className="opacity-60 text-[10px] uppercase font-bold block">Total Gain</span>
                 {(() => {
                   const diff = activePoint.portfolioValue - activePoint.investedCost;
                   const pct = activePoint.investedCost > 0 ? (diff / activePoint.investedCost) * 100 : 0;
                   return (
                     <span className={`font-bold ${diff >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                      {diff >= 0 ? '+' : ''}
-                      {Math.round(diff).toLocaleString()} ({pct.toFixed(1)}%)
+                      {diff >= 0 ? '+' : ''}{Math.round(diff).toLocaleString()} ({pct.toFixed(1)}%)
                     </span>
                   );
                 })()}
               </div>
             </div>
-          )}
+          ) : null}
 
-          {/* Interactive SVG Area + Line Chart */}
           {filteredTimeline.length === 0 ? (
             <div className="h-48 flex flex-col items-center justify-center text-center opacity-60 text-xs space-y-2">
-              <p>Import a broker transaction CSV or add an asset to generate your historical growth curve.</p>
-              <button
-                onClick={onGoToManage}
-                className="text-indigo-500 font-semibold hover:underline flex items-center gap-1"
-              >
-                <PlusCircle className="w-3.5 h-3.5" /> Import Transactions Now
+              <p>Import transaction CSVs to plot your investment timeline.</p>
+              <button onClick={onGoToManage} className="text-indigo-500 font-semibold hover:underline flex items-center gap-1">
+                <PlusCircle className="w-3.5 h-3.5" /> Import Transactions
               </button>
             </div>
           ) : (
@@ -280,13 +307,12 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                 onMouseLeave={() => setHoverIdx(null)}
               >
                 <defs>
-                  <linearGradient id="nettoValueGrad" x1="0" y1="0" x2="0" y2="1">
+                  <linearGradient id="nettoValueGrad3" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="#6366f1" stopOpacity="0.4" />
                     <stop offset="100%" stopColor="#6366f1" stopOpacity="0.0" />
                   </linearGradient>
                 </defs>
 
-                {/* Horizontal Grid Lines */}
                 {[0.25, 0.5, 0.75, 1].map((ratio, idx) => {
                   const y = padTop + usableH - ratio * usableH;
                   return (
@@ -303,32 +329,36 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                   );
                 })}
 
-                {/* Area Fill under Market Value */}
-                {valueAreaPath && <path d={valueAreaPath} fill="url(#nettoValueGrad)" />}
+                {valueAreaPath && <path d={valueAreaPath} fill="url(#nettoValueGrad3)" />}
 
-                {/* Dashed Invested Capital (Cost Basis) Line */}
                 {costLinePath && (
-                  <path
-                    d={costLinePath}
-                    fill="none"
-                    stroke="#10b981"
-                    strokeWidth="2"
-                    strokeDasharray="4 4"
-                  />
+                  <path d={costLinePath} fill="none" stroke="#10b981" strokeWidth="2" strokeDasharray="4 4" />
                 )}
 
-                {/* Solid Portfolio Market Value Line */}
                 {valueLinePath && (
-                  <path
-                    d={valueLinePath}
-                    fill="none"
-                    stroke="#6366f1"
-                    strokeWidth="2.75"
-                    strokeLinecap="round"
-                  />
+                  <path d={valueLinePath} fill="none" stroke="#6366f1" strokeWidth="2.75" strokeLinecap="round" />
                 )}
 
-                {/* Hover Indicator Line & Dots */}
+                {allTransactions.map((tx) => {
+                  const txDateStr = tx.tx_date.slice(0, 10);
+                  if (txDateStr < timelineStartDate || txDateStr > timelineEndDate) return null;
+                  const x = getTxXCoord(txDateStr);
+                  const isBuy = tx.tx_type === 'BUY';
+                  return (
+                    <g key={tx.id} className="cursor-pointer group" onClick={() => setSelectedTx(tx)}>
+                      <circle
+                        cx={x}
+                        cy={chartHeight - 14}
+                        r="3.5"
+                        fill={isBuy ? '#10b981' : '#f43f5e'}
+                        stroke={isDark ? '#0f172a' : '#ffffff'}
+                        strokeWidth="1.5"
+                      />
+                      <title>{`${tx.tx_type}: ${tx.name} (${tx.quantity} @ ${tx.price}) on ${txDateStr}`}</title>
+                    </g>
+                  );
+                })}
+
                 {hoverIdx !== null && valueCoords[hoverIdx] && costCoords[hoverIdx] && (
                   <>
                     <line
@@ -340,47 +370,29 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                       strokeWidth="1"
                       strokeDasharray="2 2"
                     />
-                    <circle
-                      cx={costCoords[hoverIdx].x}
-                      cy={costCoords[hoverIdx].y}
-                      r="4"
-                      fill="#10b981"
-                    />
-                    <circle
-                      cx={valueCoords[hoverIdx].x}
-                      cy={valueCoords[hoverIdx].y}
-                      r="5"
-                      fill="#6366f1"
-                      stroke="#ffffff"
-                      strokeWidth="1.5"
-                    />
+                    <circle cx={costCoords[hoverIdx].x} cy={costCoords[hoverIdx].y} r="4" fill="#10b981" />
+                    <circle cx={valueCoords[hoverIdx].x} cy={valueCoords[hoverIdx].y} r="5" fill="#6366f1" stroke="#ffffff" strokeWidth="1.5" />
                   </>
                 )}
 
-                {/* X-Axis Labels (Start, Middle, End) */}
                 {filteredTimeline.map((pt, i) => {
                   const count = filteredTimeline.length;
-                  const showLabel =
-                    i === 0 ||
-                    i === count - 1 ||
-                    (count > 4 && i === Math.floor(count / 2)) ||
-                    (count > 8 && (i === Math.floor(count / 4) || i === Math.floor((count * 3) / 4)));
+                  const showLabel = i === 0 || i === count - 1 || (count > 4 && i === Math.floor(count / 2));
                   if (!showLabel) return null;
                   const { x } = valueCoords[i];
                   return (
                     <text
                       key={pt.date}
                       x={x}
-                      y={chartHeight - 6}
+                      y={chartHeight - 3}
                       textAnchor={i === 0 ? 'start' : i === count - 1 ? 'end' : 'middle'}
-                      className="text-[10px] fill-current opacity-60"
+                      className="text-[9px] fill-current opacity-60"
                     >
                       {pt.label}
                     </text>
                   );
                 })}
 
-                {/* Invisible Hover Columns for Smooth Scrubbing */}
                 {filteredTimeline.map((_, i) => {
                   const count = filteredTimeline.length;
                   const colW = usableW / Math.max(count, 1);
@@ -391,7 +403,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                       x={Math.max(0, x)}
                       y={0}
                       width={colW}
-                      height={chartHeight}
+                      height={chartHeight - 20}
                       fill="transparent"
                       className="cursor-pointer"
                       onMouseEnter={() => setHoverIdx(i)}
@@ -400,16 +412,13 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                 })}
               </svg>
 
-              <div className="flex justify-between items-center text-xs opacity-80 pt-1">
+              <div className="flex flex-wrap justify-between items-center text-xs opacity-80 pt-1 gap-2">
                 <div className="flex items-center gap-4">
-                  <span className="flex items-center gap-1.5">
-                    <span className="w-3 h-1 rounded bg-indigo-500 inline-block" /> Portfolio Market Value
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    <span className="w-3 h-0.5 border-b-2 border-dashed border-emerald-500 inline-block" /> Invested Capital (Cost Basis)
-                  </span>
+                  <span className="flex items-center gap-1.5"><span className="w-3 h-1 rounded bg-indigo-500 inline-block" /> Market Value</span>
+                  <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 border-b-2 border-dashed border-emerald-500 inline-block" /> Cost Basis</span>
+                  <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" /> Buy Time Marker</span>
                 </div>
-                <span className="text-[10px] opacity-60">{filteredTimeline.length} monthly points</span>
+                <span className="text-[10px] opacity-60">{frequency === 'YEARLY' ? 'Yearly checkpoints' : 'Monthly checkpoints'}</span>
               </div>
             </div>
           )}

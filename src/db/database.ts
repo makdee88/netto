@@ -216,7 +216,8 @@ export function getHistoricalPortfolioTimeline(
   holdings: HoldingRow[],
   properties: PropertyRow[],
   fxRates: Record<string, number>,
-  baseCurrency: CurrencyCode
+  baseCurrency: CurrencyCode,
+  frequency: 'MONTHLY' | 'YEARLY' = 'MONTHLY'
 ): HistoricalTimelinePoint[] {
   const convertToBase = (amount: number, fromCurrency: string): number => {
     const inSek = amount * (fxRates[fromCurrency] || 1);
@@ -255,16 +256,18 @@ export function getHistoricalPortfolioTimeline(
   const endYear = now.getFullYear();
   const endMonth = now.getMonth() + 1;
 
-  const monthCheckpoints: Array<{ ym: string; endOfMonthDate: string; isCurrentMonth: boolean }> = [];
+  const rawCheckpoints: Array<{ ym: string; endOfMonthDate: string; isCurrentMonth: boolean; year: number; month: number }> = [];
   let y = startYear;
   let m = startMonth;
   while (y < endYear || (y === endYear && m <= endMonth)) {
     const mStr = String(m).padStart(2, '0');
     const isCurrent = y === endYear && m === endMonth;
-    monthCheckpoints.push({
+    rawCheckpoints.push({
       ym: `${y}-${mStr}`,
       endOfMonthDate: `${y}-${mStr}-31`,
       isCurrentMonth: isCurrent,
+      year: y,
+      month: m,
     });
     m++;
     if (m > 12) {
@@ -272,6 +275,16 @@ export function getHistoricalPortfolioTimeline(
       y++;
     }
   }
+
+  // Filter checkpoints based on frequency (Yearly picks December or current month for the current year)
+  const checkpoints = rawCheckpoints.filter((cp, idx) => {
+    if (frequency === 'YEARLY') {
+      const next = rawCheckpoints[idx + 1];
+      const isLastOfYear = !next || next.year !== cp.year;
+      return isLastOfYear || cp.isCurrentMonth;
+    }
+    return true;
+  });
 
   const liveHoldingPrices = new Map<string, number>();
   for (const h of holdings) {
@@ -281,13 +294,22 @@ export function getHistoricalPortfolioTimeline(
     }
   }
 
+  interface RunningPos {
+    broker: string;
+    symbol: string;
+    currency: string;
+    qty: number;
+    cost: number;
+    lastKnownPrice: number;
+  }
+
   const runningPositions = new Map<string, RunningPos>();
   let txIndex = 0;
 
   const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const timeline: HistoricalTimelinePoint[] = [];
 
-  for (const cp of monthCheckpoints) {
+  for (const cp of checkpoints) {
     while (txIndex < txs.length && txs[txIndex].tx_date.slice(0, 10) <= cp.endOfMonthDate) {
       const tx = txs[txIndex];
       const key = `${tx.broker}|${tx.symbol}`;
@@ -371,12 +393,12 @@ export function getHistoricalPortfolioTimeline(
       }
     }
 
-    const mIdx = parseInt(cp.ym.slice(5, 7), 10) - 1;
-    const shortYr = cp.ym.slice(2, 4);
+    const mIdx = cp.month - 1;
+    const label = frequency === 'YEARLY' ? String(cp.year) : cp.isCurrentMonth ? 'Now' : `${monthNames[mIdx]} '${String(cp.year).slice(2)}` ;
 
     timeline.push({
       date: cp.ym,
-      label: cp.isCurrentMonth ? 'Now' : `${monthNames[mIdx]} '${shortYr}`,
+      label,
       investedCost: equitiesCostBase + fdCostBase + propCostBase,
       portfolioValue: equitiesMarketBase + fdValBase + propValBase,
       equitiesValue: equitiesMarketBase,
@@ -445,4 +467,12 @@ export function parseNumber(val: string | number | undefined): number {
     return parseFloat(cleaned.replace(',', '.')) || 0;
   }
   return parseFloat(cleaned.replace(/,/g, '')) || 0;
+}
+
+export function getAllTransactions(db: Database): TransactionRow[] {
+  const stmt = db.prepare(`SELECT * FROM transactions ORDER BY tx_date ASC, id ASC`);
+  const rows: TransactionRow[] = [];
+  while (stmt.step()) rows.push(stmt.getAsObject() as unknown as TransactionRow);
+  stmt.free();
+  return rows;
 }
