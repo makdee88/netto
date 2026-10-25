@@ -28,6 +28,7 @@ interface OverviewTabProps {
   baseCurrency: CurrencyCode;
   fxRates: Record<string, number>;
   theme: 'dark' | 'light';
+  isMasked: boolean; // Add this line
   onGoToManage: () => void;
   onOpenPrivacyModal: () => void;
 }
