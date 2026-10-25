@@ -30,7 +30,6 @@ import {
   LayoutDashboard,
   PlusCircle,
   CheckCircle2,
-  FileSpreadsheet,
   ArrowRight,
 } from 'lucide-react';
 
@@ -44,7 +43,9 @@ type DashboardSubTab = 'OVERVIEW' | 'MANAGE';
 
 export default function App() {
   const [step, setStep] = useState<AppStep>('LANDING');
-  const [subTab, setSubTab] = useState<DashboardSubTab>('OVERVIEW');
+  const [subTab, setSubTab] = useState<DashboardSubTab>(() => {
+    return (sessionStorage.getItem('netto_sub_tab') as DashboardSubTab) || 'OVERVIEW';
+  });
   const [authMode, setAuthMode] = useState<AuthMode>('CREATE_OR_UNLOCK');
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
 
@@ -68,6 +69,11 @@ export default function App() {
     const savedTheme = localStorage.getItem(THEME_KEY) as 'dark' | 'light' | null;
     if (savedTheme) setTheme(savedTheme);
   }, []);
+
+  const handleTabChange = (tab: DashboardSubTab) => {
+    setSubTab(tab);
+    sessionStorage.setItem('netto_sub_tab', tab);
+  };
 
   const toggleTheme = () => {
     const next = theme === 'dark' ? 'light' : 'dark';
@@ -260,13 +266,13 @@ export default function App() {
 
         <div className="flex gap-1 bg-slate-950/20 p-1 rounded-xl text-xs font-semibold">
           <button
-            onClick={() => setSubTab('OVERVIEW')}
+            onClick={() => handleTabChange('OVERVIEW')}
             className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg transition ${subTab === 'OVERVIEW' ? 'bg-indigo-600 text-white shadow' : 'opacity-70 hover:opacity-100'}`}
           >
             <LayoutDashboard className="w-3.5 h-3.5" /> Overview & Analytics
           </button>
           <button
-            onClick={() => setSubTab('MANAGE')}
+            onClick={() => handleTabChange('MANAGE')}
             className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg transition ${subTab === 'MANAGE' ? 'bg-indigo-600 text-white shadow' : 'opacity-70 hover:opacity-100'}`}
           >
             <PlusCircle className="w-3.5 h-3.5" /> Manage & Import Assets
@@ -359,7 +365,7 @@ export default function App() {
             baseCurrency={baseCurrency}
             fxRates={fxRates}
             theme={theme}
-            onGoToManage={() => setSubTab('MANAGE')}
+            onGoToManage={() => handleTabChange('MANAGE')}
             onOpenPrivacyModal={() => setShowSecurityModal(true)}
           />
         ) : (
@@ -367,7 +373,7 @@ export default function App() {
             db={db}
             holdings={holdings}
             theme={theme}
-            onBackToOverview={() => setSubTab('OVERVIEW')}
+            onBackToOverview={() => handleTabChange('OVERVIEW')}
             onCsvImport={(file, broker) =>
               importBrokerCsv(file, broker, db, async (count) => {
                 await persistEncryptedVault(db);
@@ -453,7 +459,7 @@ export default function App() {
                 <span className="font-bold text-indigo-400">{csvSummary.broker}</span>
               </div>
               <div className="flex justify-between">
-                <span className="opacity-70">Holdings Processed / Upserted:</span>
+                <span className="opacity-70">Net Holdings Calculated:</span>
                 <span className="font-bold text-emerald-400">{csvSummary.count} assets</span>
               </div>
             </div>
@@ -470,7 +476,7 @@ export default function App() {
                 type="button"
                 onClick={() => {
                   setCsvSummary(null);
-                  setSubTab('OVERVIEW');
+                  handleTabChange('OVERVIEW');
                 }}
                 className="flex-1 py-3 rounded-xl font-bold text-xs bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg flex items-center justify-center gap-1.5 transition"
               >
