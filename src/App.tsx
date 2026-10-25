@@ -28,6 +28,8 @@ import {
   PlusCircle,
   CheckCircle2,
   ArrowRight,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 
 const STORAGE_KEY = 'netto_encrypted_vault_v2';
@@ -47,6 +49,9 @@ export default function App() {
   });
   const [authMode, setAuthMode] = useState<AuthMode>('CREATE_OR_UNLOCK');
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+
+  // Privacy Mask State (Masked by default)
+  const [isMasked, setIsMasked] = useState<boolean>(true);
 
   const [db, setDb] = useState<Database | null>(null);
   const [passphrase, setPassphrase] = useState<string>('');
@@ -285,6 +290,20 @@ export default function App() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {/* Privacy Mask Toggle Button */}
+          <button
+            onClick={() => setIsMasked(!isMasked)}
+            className={`p-2 rounded-lg border transition flex items-center gap-1.5 text-xs font-semibold ${
+              isMasked
+                ? 'bg-amber-500/10 border-amber-500/30 text-amber-400 hover:bg-amber-500/20'
+                : 'bg-indigo-600 border-indigo-500 text-white shadow'
+            }`}
+            title={isMasked ? 'Reveal Values (Privacy Mode ON)' : 'Mask Values (Privacy Mode OFF)'}
+          >
+            {isMasked ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            <span className="hidden sm:inline">{isMasked ? 'Masked' : 'Visible'}</span>
+          </button>
+
           <button
             onClick={toggleTheme}
             className={`p-2 rounded-lg border transition ${isDark ? 'bg-slate-800 border-slate-700 text-yellow-400' : 'bg-slate-100 border-slate-300 text-slate-700'}`}
@@ -372,6 +391,7 @@ export default function App() {
             baseCurrency={baseCurrency}
             fxRates={fxRates}
             theme={theme}
+            isMasked={isMasked}
             onGoToManage={() => handleTabChange('MANAGE')}
             onOpenPrivacyModal={() => setShowSecurityModal(true)}
           />
