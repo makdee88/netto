@@ -332,7 +332,8 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                   <tr key={h.id} className={isDark ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}>
                     <td className="p-4 font-semibold">{h.broker}</td>
                     <td className="p-4">
-                      <span className="font-medium">{h.name}</span> <span className="opacity-60">({h.symbol})</span>
+                      <span className="font-bold text-white block">{h.name}</span>
+                      <span className="opacity-50 text-[10px] font-mono">{h.symbol}</span>
                     </td>
                     <td className="p-4">
                       <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${isFD ? 'bg-emerald-500/15 text-emerald-400' : 'bg-indigo-500/15 text-indigo-400'}`}>

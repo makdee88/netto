@@ -35,6 +35,11 @@ import {
 
 const STORAGE_KEY = 'netto_encrypted_vault_v2';
 const THEME_KEY = 'netto_color_theme';
+
+const [step, setStep] = useState<AppStep>(() => {
+    return localStorage.getItem(STORAGE_KEY) ? 'AUTH' : 'LANDING';
+  });
+
 const GOOGLE_CLIENT_ID =
   (import.meta as any).env?.VITE_GOOGLE_CLIENT_ID || 'YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com';
 
