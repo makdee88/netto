@@ -47,7 +47,6 @@ export function importBrokerCsv(
       let duplicateTransactionsSkipped = 0;
       let usedTransactionLedger = false;
 
-      // Track identical transactions within the same CSV (e.g., two identical buys on the same day)
       const fileOccurrenceCounter = new Map<string, number>();
 
       const insertTxSql = `
@@ -78,15 +77,12 @@ export function importBrokerCsv(
         const txDate = getCol(row, ['Datum', 'Bokföringsdag', 'Affärsdag', 'Trade Date', 'Date']);
         const rawType = getCol(row, ['Typ av transaktion', 'Transaktionstyp', 'Typ', 'Trade Type', 'Type']).toLowerCase();
 
-        // Check if this row is a transaction log entry (Avanza / Nordnet / Tradebooks)
         if (txDate && rawType) {
           usedTransactionLedger = true;
 
           const rawName = getCol(row, [
             'Värdepapper/beskrivning',
-            'rdepapper/beskrivning',
             'Värdepapper',
-            'rdepapper',
             'Namn',
             'Instrument',
             'Description',
@@ -113,6 +109,8 @@ export function importBrokerCsv(
           const isSell =
             rawType.includes('sälj') ||
             rawType.includes('salj') ||
+            rawType.includes('sålt') ||
+            rawType.includes('salt') ||
             rawType.includes('sell') ||
             rawType.includes('uttag');
           const isSplit =
@@ -126,19 +124,18 @@ export function importBrokerCsv(
 
           const normalizedType: 'BUY' | 'SELL' | 'SPLIT' = isBuy ? 'BUY' : isSell ? 'SELL' : 'SPLIT';
           const name = rawName || isin;
+          // Use ISIN as the primary immutable symbol/key so all buys/sells group together
           let symbol = isin || name;
 
           if ((broker === 'ZERODHA' || broker === 'UPSTOX') && !symbol.endsWith('.NS') && !symbol.endsWith('.BO')) {
             symbol = `${symbol}.NS`;
           }
 
-          // Build deterministic signature so re-uploading overlapping CSV date ranges skips duplicates
           const baseSig = `${brokerName}|${account}|${txDate}|${normalizedType}|${symbol}|${Math.abs(qty).toFixed(4)}|${price.toFixed(4)}|${Math.abs(amount).toFixed(2)}`;
           const occurrence = (fileOccurrenceCounter.get(baseSig) || 0) + 1;
           fileOccurrenceCounter.set(baseSig, occurrence);
           const txHash = `${baseSig}#${occurrence}`;
 
-          // Check if transaction already exists
           const existing = db.exec(`SELECT 1 FROM transactions WHERE tx_hash = ?`, [txHash]);
           if (existing.length > 0 && existing[0].values.length > 0) {
             duplicateTransactionsSkipped++;
@@ -159,7 +156,6 @@ export function importBrokerCsv(
             newTransactionsAdded++;
           }
         } else {
-          // Direct Position Snapshot CSV (e.g. Zerodha Holdings, Upstox Holdings, IBKR Positions)
           const rawName = getCol(row, [
             'Värdepapper/beskrivning',
             'Värdepapper',
