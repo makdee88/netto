@@ -298,10 +298,10 @@ export default function App() {
                 ? 'bg-amber-500/10 border-amber-500/30 text-amber-400 hover:bg-amber-500/20'
                 : 'bg-indigo-600 border-indigo-500 text-white shadow'
             }`}
-            title={isMasked ? 'Reveal Values (Privacy Mode ON)' : 'Mask Values (Privacy Mode OFF)'}
+            title={isMasked ? 'Click to reveal hidden values' : 'Click to hide values (Privacy Mode)'}
           >
             {isMasked ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-            <span className="hidden sm:inline">{isMasked ? 'Masked' : 'Visible'}</span>
+            <span>{isMasked ? 'Privacy Mode: ON' : 'Privacy Mode: OFF'}</span>
           </button>
 
           <button

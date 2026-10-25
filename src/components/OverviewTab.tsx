@@ -28,7 +28,7 @@ interface OverviewTabProps {
   baseCurrency: CurrencyCode;
   fxRates: Record<string, number>;
   theme: 'dark' | 'light';
-  isMasked: boolean; // Add this line
+  isMasked: boolean;
   onGoToManage: () => void;
   onOpenPrivacyModal: () => void;
 }
@@ -42,6 +42,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
   baseCurrency,
   fxRates,
   theme,
+  isMasked,
   onGoToManage,
 }) => {
   const isDark = theme === 'dark';
@@ -53,6 +54,11 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
   const properties: PropertyRow[] = getProperties(db);
   const liabilities: LiabilityRow[] = getLiabilities(db);
   const allTransactions: TransactionRow[] = getAllTransactions(db);
+
+  const formatVal = (amount: number, currency: string = baseCurrency) => {
+    if (isMasked) return '••••••';
+    return `${Math.round(amount).toLocaleString()} ${currency}`;
+  };
 
   const convertToBase = (amount: number, fromCurrency: string): number => {
     const inSek = amount * (fxRates[fromCurrency] || 1);
@@ -84,7 +90,6 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
   const netWorth = totalAssets - totalLiabilities;
   const debtToAssetRatio = totalAssets > 0 ? (totalLiabilities / totalAssets) * 100 : 0;
 
-  // Pass frequency mode into timeline builder
   const fullTimeline = getHistoricalPortfolioTimeline(db, holdings, properties, fxRates, baseCurrency, frequency);
 
   const filteredTimeline = (() => {
@@ -177,7 +182,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         <div className={`border p-5 rounded-2xl shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
           <span className="text-[11px] uppercase tracking-wider opacity-60 font-semibold">Net Worth</span>
           <div className="text-2xl font-extrabold mt-1 text-indigo-500">
-            {Math.round(netWorth).toLocaleString()} {baseCurrency}
+            {formatVal(netWorth)}
           </div>
           <span className="text-[10px] opacity-60">Total Assets minus Liabilities</span>
         </div>
@@ -185,7 +190,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         <div className={`border p-5 rounded-2xl shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
           <span className="text-[11px] uppercase tracking-wider opacity-60 font-semibold">Total Gross Assets</span>
           <div className="text-2xl font-extrabold mt-1 text-emerald-500 flex items-center gap-1">
-            <ArrowUpRight className="w-5 h-5" /> {Math.round(totalAssets).toLocaleString()} {baseCurrency}
+            <ArrowUpRight className="w-5 h-5" /> {formatVal(totalAssets)}
           </div>
           <span className="text-[10px] opacity-60">Equities, FDs & Properties (Current Value)</span>
         </div>
@@ -193,7 +198,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         <div className={`border p-5 rounded-2xl shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
           <span className="text-[11px] uppercase tracking-wider opacity-60 font-semibold">Total Liabilities</span>
           <div className="text-2xl font-extrabold mt-1 text-rose-500 flex items-center gap-1">
-            <ArrowDownRight className="w-5 h-5" /> {Math.round(totalLiabilities).toLocaleString()} {baseCurrency}
+            <ArrowDownRight className="w-5 h-5" /> {formatVal(totalLiabilities)}
           </div>
           <span className="text-[10px] opacity-60">Mortgages & Loans</span>
         </div>
@@ -201,7 +206,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         <div className={`border p-5 rounded-2xl shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
           <span className="text-[11px] uppercase tracking-wider opacity-60 font-semibold">Debt-to-Asset Ratio</span>
           <div className={`text-2xl font-extrabold mt-1 ${debtToAssetRatio > 50 ? 'text-rose-500' : 'text-indigo-500'}`}>
-            {debtToAssetRatio.toFixed(1)}%
+            {isMasked ? '•••%' : `${debtToAssetRatio.toFixed(1)}%`}
           </div>
           <span className="text-[10px] opacity-60">{debtToAssetRatio < 40 ? 'Healthy Leverage' : 'High Leverage'}</span>
         </div>
@@ -222,7 +227,6 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
             </div>
 
             <div className="flex items-center gap-3">
-              {/* Frequency Toggle: Monthly vs Yearly */}
               <div className={`flex gap-1 p-1 rounded-xl text-[10px] font-bold ${isDark ? 'bg-slate-950' : 'bg-slate-100'}`}>
                 {(['MONTHLY', 'YEARLY'] as FrequencyMode[]).map((mode) => (
                   <button
@@ -237,7 +241,6 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                 ))}
               </div>
 
-              {/* Timeframe Range */}
               <div className={`flex gap-1 p-1 rounded-xl text-[11px] font-bold ${isDark ? 'bg-slate-950' : 'bg-slate-100'}`}>
                 {(['1Y', '3Y', '5Y', 'ALL'] as TimeframeRange[]).map((tf) => (
                   <button
@@ -272,11 +275,11 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
               </div>
               <div>
                 <span className="opacity-60 text-[10px] uppercase font-bold block">Market Value</span>
-                <span className="font-extrabold">{Math.round(activePoint.portfolioValue).toLocaleString()} {baseCurrency}</span>
+                <span className="font-extrabold">{formatVal(activePoint.portfolioValue)}</span>
               </div>
               <div>
                 <span className="opacity-60 text-[10px] uppercase font-bold block">Invested Capital</span>
-                <span className="font-semibold text-emerald-500">{Math.round(activePoint.investedCost).toLocaleString()} {baseCurrency}</span>
+                <span className="font-semibold text-emerald-500">{formatVal(activePoint.investedCost)}</span>
               </div>
               <div>
                 <span className="opacity-60 text-[10px] uppercase font-bold block">Total Gain</span>
@@ -285,7 +288,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                   const pct = activePoint.investedCost > 0 ? (diff / activePoint.investedCost) * 100 : 0;
                   return (
                     <span className={`font-bold ${diff >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                      {diff >= 0 ? '+' : ''}{Math.round(diff).toLocaleString()} ({pct.toFixed(1)}%)
+                      {isMasked ? '••••••' : `${diff >= 0 ? '+' : ''}${Math.round(diff).toLocaleString()} (${pct.toFixed(1)}%)`}
                     </span>
                   );
                 })()}
@@ -442,9 +445,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                   <div key={category} className="space-y-1.5 text-xs">
                     <div className="flex justify-between font-medium">
                       <span>{category}</span>
-                      <span>
-                        {Math.round(val).toLocaleString()} {baseCurrency} ({pct.toFixed(1)}%)
-                      </span>
+                      <span>{formatVal(val)} ({pct.toFixed(1)}%)</span>
                     </div>
                     <div className={`w-full h-2.5 rounded-full overflow-hidden ${isDark ? 'bg-slate-950' : 'bg-slate-100'}`}>
                       <div
@@ -492,7 +493,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                       </span>
                     </span>
                     <span>
-                      {Math.round(h.baseVal).toLocaleString()} {baseCurrency}{' '}
+                      {formatVal(h.baseVal)}{' '}
                       <b className="text-indigo-500">({pct.toFixed(1)}%)</b>
                     </span>
                   </div>
@@ -523,9 +524,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                   <div key={curr} className="space-y-1 text-xs">
                     <div className="flex justify-between font-medium">
                       <span>{curr} Denominated Assets</span>
-                      <span>
-                        {Math.round(val).toLocaleString()} {baseCurrency} ({pct.toFixed(1)}%)
-                      </span>
+                      <span>{formatVal(val)} ({pct.toFixed(1)}%)</span>
                     </div>
                     <div className={`w-full h-2 rounded-full overflow-hidden ${isDark ? 'bg-slate-950' : 'bg-slate-100'}`}>
                       <div style={{ width: `${pct}%` }} className="h-full rounded-full bg-sky-500" />
@@ -563,9 +562,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                     </div>
                     <div className="text-right">
                       <span className="font-semibold text-emerald-500">{fd.maturity_date || 'No maturity date'}</span>
-                      <p className="text-[10px] opacity-60">
-                        {Math.round(fd.baseVal).toLocaleString()} {baseCurrency}
-                      </p>
+                      <p className="text-[10px] opacity-60">{formatVal(fd.baseVal)}</p>
                     </div>
                   </div>
                 ))
@@ -625,7 +622,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                       </span>
                     </td>
                     <td className="p-4 opacity-90">
-                      {isFD ? `${h.principal.toLocaleString()} ${h.currency}` : h.quantity.toLocaleString()}
+                      {isFD ? formatVal(h.principal, h.currency) : h.quantity.toLocaleString()}
                     </td>
                     <td className="p-4 opacity-90">
                       {isFD ? (
@@ -633,20 +630,19 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                       ) : (
                         <div>
                           <span className="font-semibold">
-                            {h.effectiveMarketPrice.toFixed(2)} {h.currency}
+                            {isMasked ? '••••' : `${h.effectiveMarketPrice.toFixed(2)} ${h.currency}`}
                           </span>
                           <span className="block text-[10px] opacity-60">
-                            Avg buy: {h.avg_price.toFixed(2)} {h.currency}
+                            Avg buy: {isMasked ? '••••' : `${h.avg_price.toFixed(2)} ${h.currency}`}
                           </span>
                         </div>
                       )}
                     </td>
                     <td className={`p-4 font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                      {Math.round(h.baseVal).toLocaleString()} {baseCurrency}
+                      {formatVal(h.baseVal)}
                     </td>
                     <td className={`p-4 text-right font-semibold ${h.gain >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                      {h.gain >= 0 ? '+' : ''}
-                      {Math.round(h.gain).toLocaleString()} ({h.gainPct.toFixed(1)}%)
+                      {isMasked ? '••••••' : `${h.gain >= 0 ? '+' : ''}${Math.round(h.gain).toLocaleString()} (${h.gainPct.toFixed(1)}%)`}
                     </td>
                   </tr>
                 );
@@ -698,15 +694,10 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                     <td className="p-4 opacity-80">
                       {p.buy_month}/{p.buy_year}
                     </td>
-                    <td className="p-4 opacity-80">
-                      {Math.round(buyBase).toLocaleString()} {baseCurrency}
-                    </td>
-                    <td className="p-4 font-bold text-emerald-500">
-                      {Math.round(curBase).toLocaleString()} {baseCurrency}
-                    </td>
+                    <td className="p-4 opacity-80">{formatVal(buyBase)}</td>
+                    <td className="p-4 font-bold text-emerald-500">{formatVal(curBase)}</td>
                     <td className={`p-4 text-right font-semibold ${gain >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                      {gain >= 0 ? '+' : ''}
-                      {Math.round(gain).toLocaleString()} ({gainPct.toFixed(1)}%)
+                      {isMasked ? '••••••' : `${gain >= 0 ? '+' : ''}${Math.round(gain).toLocaleString()} (${gainPct.toFixed(1)}%)`}
                     </td>
                   </tr>
                 );
@@ -753,12 +744,8 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                     <td className="p-4 font-semibold">{l.name}</td>
                     <td className="p-4 uppercase text-[10px] font-bold">{l.liability_type}</td>
                     <td className="p-4 text-amber-500 font-semibold">{l.interest_rate}%</td>
-                    <td className="p-4 opacity-80">
-                      {Math.round(origBase).toLocaleString()} {baseCurrency}
-                    </td>
-                    <td className="p-4 text-right font-bold text-rose-500">
-                      {Math.round(remBase).toLocaleString()} {baseCurrency}
-                    </td>
+                    <td className="p-4 opacity-80">{formatVal(origBase)}</td>
+                    <td className="p-4 text-right font-bold text-rose-500">{formatVal(remBase)}</td>
                   </tr>
                 );
               })
