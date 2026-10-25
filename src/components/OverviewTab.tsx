@@ -3,12 +3,14 @@ import {
   TrendingUp,
   PieChart,
   ShieldCheck,
-  ServerOff,
   PlusCircle,
   Building2,
   CreditCard,
   ArrowUpRight,
   ArrowDownRight,
+  Globe2,
+  Calendar,
+  Layers,
 } from 'lucide-react';
 import { calculateFDCurrentValue, getSnapshots, getProperties, getLiabilities } from '../db/database';
 import { CurrencyCode, HoldingRow, PropertyRow, LiabilityRow } from '../types';
@@ -43,33 +45,44 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
     return inSek / (fxRates[baseCurrency] || 1);
   };
 
-  // 1. Total Financial Assets (Equities + FDs)
-  const totalFinancialAssets = holdings.reduce((sum, h) => {
-    const nativeVal = h.category === 'FIXED_DEPOSIT' ? calculateFDCurrentValue(h) : h.quantity * h.market_price;
-    return sum + convertToBase(nativeVal, h.currency);
-  }, 0);
+  // Calculate true current market value for holdings (falls back to buy price if market price is 0)
+  const holdingsWithValues = holdings.map((h) => {
+    const isFD = h.category === 'FIXED_DEPOSIT';
+    const nativeVal = isFD
+      ? calculateFDCurrentValue(h)
+      : h.quantity * (h.market_price > 0 ? h.market_price : h.avg_price);
+    const costVal = isFD ? h.principal : h.quantity * h.avg_price;
+    const baseVal = convertToBase(nativeVal, h.currency);
+    const baseCost = convertToBase(costVal, h.currency);
+    const gain = baseVal - baseCost;
+    return { ...h, nativeVal, baseVal, gain, gainPct: baseCost > 0 ? (gain / baseCost) * 100 : 0 };
+  });
 
-  // 2. Total Real Estate / Properties
-  const totalRealEstate = properties.reduce((sum, p) => {
-    return sum + convertToBase(p.current_price, p.currency);
-  }, 0);
-
+  const totalFinancialAssets = holdingsWithValues.reduce((sum, h) => sum + h.baseVal, 0);
+  const totalRealEstate = properties.reduce((sum, p) => sum + convertToBase(p.current_price, p.currency), 0);
   const totalAssets = totalFinancialAssets + totalRealEstate;
-
-  // 3. Total Liabilities
-  const totalLiabilities = liabilities.reduce((sum, l) => {
-    return sum + convertToBase(l.remaining_balance, l.currency);
-  }, 0);
-
+  const totalLiabilities = liabilities.reduce((sum, l) => sum + convertToBase(l.remaining_balance, l.currency), 0);
   const netWorth = totalAssets - totalLiabilities;
   const debtToAssetRatio = totalAssets > 0 ? (totalLiabilities / totalAssets) * 100 : 0;
 
-  // Asset Allocation Breakdown
-  const breakdown: Record<string, number> = {
-    'Equities & ETFs': holdings.filter(h => h.category !== 'FIXED_DEPOSIT').reduce((s, h) => s + convertToBase(h.quantity * h.market_price, h.currency), 0),
-    'Fixed Deposits & Savings': holdings.filter(h => h.category === 'FIXED_DEPOSIT').reduce((s, h) => s + convertToBase(calculateFDCurrentValue(h), h.currency), 0),
-    'Real Estate & Land': totalRealEstate,
+  // Asset Class Allocation
+  const assetBreakdown: Record<string, number> = {
+    'Equities & ETFs': holdingsWithValues.filter(h => h.category !== 'FIXED_DEPOSIT').reduce((s, h) => s + h.baseVal, 0),
+    'Fixed Deposits & Savings': holdingsWithValues.filter(h => h.category === 'FIXED_DEPOSIT').reduce((s, h) => s + h.baseVal, 0),
+    'Real Estate': totalRealEstate,
   };
+
+  // Stock / Fund Wise Breakdown (Sorted by largest current value)
+  const sortedHoldings = [...holdingsWithValues].sort((a, b) => b.baseVal - a.baseVal);
+
+  // Currency Exposure
+  const currencyBreakdown: Record<string, number> = {};
+  holdingsWithValues.forEach(h => {
+    currencyBreakdown[h.currency] = (currencyBreakdown[h.currency] || 0) + h.baseVal;
+  });
+  properties.forEach(p => {
+    currencyBreakdown[p.currency] = (currencyBreakdown[p.currency] || 0) + convertToBase(p.current_price, p.currency);
+  });
 
   return (
     <div className="space-y-6">
@@ -88,7 +101,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
           <div className="text-2xl font-extrabold mt-1 text-emerald-400 flex items-center gap-1">
             <ArrowUpRight className="w-5 h-5" /> {Math.round(totalAssets).toLocaleString()} {baseCurrency}
           </div>
-          <span className="text-[10px] opacity-60">Equities, FDs & Properties</span>
+          <span className="text-[10px] opacity-60">Equities, FDs & Properties (Current Value)</span>
         </div>
 
         <div className={`border p-5 rounded-2xl shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
@@ -108,51 +121,55 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         </div>
       </div>
 
-      {/* Analytics & Growth Over Time Section (Assets vs Liabilities Trajectory) */}
+      {/* Analytics Row: Trajectory Graph + Asset Allocation */}
       <div className="grid md:grid-cols-2 gap-6">
+        {/* Net Worth & Asset Trajectory Graph */}
         <div className={`border p-6 rounded-2xl space-y-4 shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <TrendingUp className="w-5 h-5 text-indigo-400" />
-              <h2 className="font-bold text-base">Assets vs. Liabilities Trajectory</h2>
+              <h2 className="font-bold text-base">Net Worth & Asset Trajectory Over Time</h2>
             </div>
             <button onClick={onGoToManage} className="text-xs text-indigo-400 hover:underline font-semibold flex items-center gap-1">
-              <PlusCircle className="w-3.5 h-3.5" /> Add Asset/Liability
+              <PlusCircle className="w-3.5 h-3.5" /> Update Data
             </button>
           </div>
 
-          {snapshots.length < 2 ? (
-            <div className="h-44 flex flex-col items-center justify-center text-center opacity-60 text-xs space-y-1">
-              <p>Historical trends populate automatically as you record snapshots over time.</p>
-              <span className="text-[10px] text-indigo-400">Current Net Worth: {Math.round(netWorth).toLocaleString()} {baseCurrency}</span>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              <div className="h-40 flex items-end gap-2 pt-4 px-2 border-b border-slate-800">
-                {snapshots.map((s, idx) => {
+          <div className="space-y-3">
+            <div className="h-48 flex items-end gap-3 pt-6 px-2 border-b border-slate-800 relative">
+              {snapshots.length === 0 ? (
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-center opacity-60 text-xs space-y-1">
+                  <p>Historical snapshots record automatically as you open or update your portfolio.</p>
+                  <span className="text-[11px] text-indigo-400 font-bold">Current Net Worth: {Math.round(netWorth).toLocaleString()} {baseCurrency}</span>
+                </div>
+              ) : (
+                snapshots.map((s, idx) => {
                   const maxVal = Math.max(...snapshots.map((x) => x.assets), 1);
-                  const assetH = Math.max(10, (s.assets / maxVal) * 100);
-                  const liabH = Math.max(5, (s.liabilities / maxVal) * 100);
+                  const assetH = Math.max(12, (s.assets / maxVal) * 100);
+                  const netH = Math.max(10, (s.netWorth / maxVal) * 100);
                   return (
-                    <div key={idx} className="flex-1 flex flex-col items-center gap-1 group relative">
-                      <div className="w-full flex items-end gap-0.5 h-full">
-                        <div style={{ height: `${assetH}%` }} className="w-1/2 bg-emerald-500 rounded-t" title={`Assets: ${Math.round(s.assets)}`} />
-                        <div style={{ height: `${liabH}%` }} className="w-1/2 bg-rose-500 rounded-t" title={`Liabilities: ${Math.round(s.liabilities)}`} />
+                    <div key={idx} className="flex-1 flex flex-col items-center gap-1 group relative h-full justify-end">
+                      <div className="w-full flex items-end gap-1 h-full">
+                        <div style={{ height: `${assetH}%` }} className="w-1/2 bg-emerald-500/80 hover:bg-emerald-400 rounded-t transition-all" title={`Total Assets: ${Math.round(s.assets)}`} />
+                        <div style={{ height: `${netH}%` }} className="w-1/2 bg-indigo-500 hover:bg-indigo-400 rounded-t transition-all" title={`Net Worth: ${Math.round(s.netWorth)}`} />
                       </div>
-                      <span className="text-[9px] opacity-60 truncate">{s.date.slice(5)}</span>
+                      <span className="text-[9px] opacity-70 truncate pt-1">{s.date.slice(5)}</span>
                     </div>
                   );
-                })}
-              </div>
-              <div className="flex justify-between items-center text-xs opacity-75">
-                <span className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block" /> Assets</span>
-                <span className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block" /> Liabilities</span>
-              </div>
+                })
+              )}
             </div>
-          )}
+            <div className="flex justify-between items-center text-xs opacity-80 pt-1">
+              <div className="flex items-center gap-4">
+                <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block" /> Total Assets</span>
+                <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-indigo-500 inline-block" /> Net Worth</span>
+              </div>
+              <span className="text-[10px] opacity-60">Updated Daily</span>
+            </div>
+          </div>
         </div>
 
-        {/* Asset Allocation Breakdown */}
+        {/* Asset Class Allocation */}
         <div className={`border p-6 rounded-2xl space-y-4 shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
           <div className="flex items-center gap-2">
             <PieChart className="w-5 h-5 text-emerald-400" />
@@ -163,7 +180,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
             {totalAssets === 0 ? (
               <p className="text-xs opacity-60 text-center py-12">No assets recorded yet.</p>
             ) : (
-              Object.entries(breakdown).map(([category, val]) => {
+              Object.entries(assetBreakdown).map(([category, val]) => {
                 const pct = totalAssets > 0 ? (val / totalAssets) * 100 : 0;
                 return (
                   <div key={category} className="space-y-1 text-xs">
@@ -187,7 +204,156 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         </div>
       </div>
 
-      {/* Properties & Real Estate Table */}
+      {/* Stock / Fund-Wise Concentration Breakdown */}
+      <div className={`border p-6 rounded-2xl space-y-4 shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Layers className="w-5 h-5 text-indigo-400" />
+            <h2 className="font-bold text-base">Stock & Fund Concentration (Top Holdings)</h2>
+          </div>
+          <span className="text-xs opacity-60">{sortedHoldings.length} Total Holdings</span>
+        </div>
+
+        <div className="space-y-3 pt-1">
+          {sortedHoldings.length === 0 ? (
+            <p className="text-xs opacity-60 text-center py-6">No stock or fund holdings imported yet.</p>
+          ) : (
+            sortedHoldings.slice(0, 8).map((h) => {
+              const pct = totalAssets > 0 ? (h.baseVal / totalAssets) * 100 : 0;
+              return (
+                <div key={h.id} className="space-y-1 text-xs">
+                  <div className="flex justify-between font-medium">
+                    <span className="flex items-center gap-2">
+                      <b className="text-white">{h.name}</b>
+                      <span className="opacity-60 text-[10px]">({h.symbol} • {h.broker})</span>
+                    </span>
+                    <span>
+                      {Math.round(h.baseVal).toLocaleString()} {baseCurrency} <b className="text-indigo-400">({pct.toFixed(1)}%)</b>
+                    </span>
+                  </div>
+                  <div className={`w-full h-2 rounded-full overflow-hidden ${isDark ? 'bg-slate-950' : 'bg-slate-100'}`}>
+                    <div style={{ width: `${pct}%` }} className="h-full rounded-full bg-indigo-500" />
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+
+      {/* Additional Analytics Row: Currency Exposure & Upcoming FD Maturities */}
+      <div className="grid md:grid-cols-2 gap-6">
+        {/* Currency Exposure Analytics */}
+        <div className={`border p-6 rounded-2xl space-y-4 shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+          <div className="flex items-center gap-2">
+            <Globe2 className="w-5 h-5 text-sky-400" />
+            <h2 className="font-bold text-base">Multi-Currency Exposure</h2>
+          </div>
+          <div className="space-y-3 pt-1">
+            {Object.keys(currencyBreakdown).length === 0 ? (
+              <p className="text-xs opacity-60 text-center py-6">No currency data available.</p>
+            ) : (
+              Object.entries(currencyBreakdown).map(([curr, val]) => {
+                const pct = totalAssets > 0 ? (val / totalAssets) * 100 : 0;
+                return (
+                  <div key={curr} className="space-y-1 text-xs">
+                    <div className="flex justify-between font-medium">
+                      <span>{curr} Denominated Assets</span>
+                      <span>{Math.round(val).toLocaleString()} {baseCurrency} ({pct.toFixed(1)}%)</span>
+                    </div>
+                    <div className={`w-full h-2 rounded-full overflow-hidden ${isDark ? 'bg-slate-950' : 'bg-slate-100'}`}>
+                      <div style={{ width: `${pct}%` }} className="h-full rounded-full bg-sky-500" />
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        {/* Fixed Deposit / Savings Maturity Timeline */}
+        <div className={`border p-6 rounded-2xl space-y-4 shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+          <div className="flex items-center gap-2">
+            <Calendar className="w-5 h-5 text-emerald-400" />
+            <h2 className="font-bold text-base">Fixed Deposit Maturities</h2>
+          </div>
+          <div className="space-y-2 text-xs">
+            {holdingsWithValues.filter(h => h.category === 'FIXED_DEPOSIT').length === 0 ? (
+              <p className="text-xs opacity-60 text-center py-6">No Fixed Deposits recorded.</p>
+            ) : (
+              holdingsWithValues.filter(h => h.category === 'FIXED_DEPOSIT').map(fd => (
+                <div key={fd.id} className={`p-3 rounded-xl border flex justify-between items-center ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                  <div>
+                    <span className="font-bold text-white">{fd.name}</span>
+                    <p className="text-[10px] opacity-60">{fd.broker} • {fd.interest_rate}% interest</p>
+                  </div>
+                  <div className="text-right">
+                    <span className="font-semibold text-emerald-400">{fd.maturity_date || 'No maturity date'}</span>
+                    <p className="text-[10px] opacity-60">{Math.round(fd.baseVal).toLocaleString()} {baseCurrency}</p>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Holdings Table with Live Market Values and Unrealized Gains */}
+      <div className={`border rounded-2xl overflow-hidden shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+        <div className="p-4 border-b flex justify-between items-center">
+          <h3 className="font-bold text-sm">Consolidated Portfolio Holdings (Live Valuation)</h3>
+          <button onClick={onGoToManage} className="text-xs text-indigo-400 hover:underline font-semibold">
+            + Add or Edit Holdings
+          </button>
+        </div>
+        <table className="w-full text-left text-xs">
+          <thead className={`border-b uppercase tracking-wider ${isDark ? 'bg-slate-950/80 border-slate-800 text-slate-400' : 'bg-slate-100 border-slate-200 text-slate-600'}`}>
+            <tr>
+              <th className="p-4">Broker / Bank</th>
+              <th className="p-4">Asset</th>
+              <th className="p-4">Category</th>
+              <th className="p-4">Qty / Principal</th>
+              <th className="p-4">Market Price / Rate</th>
+              <th className="p-4">Current Market Value</th>
+              <th className="p-4 text-right">Unrealized Gain / Loss</th>
+            </tr>
+          </thead>
+          <tbody className={`divide-y ${isDark ? 'divide-slate-800/70' : 'divide-slate-200'}`}>
+            {holdingsWithValues.length === 0 ? (
+              <tr>
+                <td colSpan={7} className="p-10 text-center opacity-60">
+                  No holdings found. Click <b>Manage & Import Assets</b> above.
+                </td>
+              </tr>
+            ) : (
+              holdingsWithValues.map((h) => {
+                const isFD = h.category === 'FIXED_DEPOSIT';
+                return (
+                  <tr key={h.id} className={isDark ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}>
+                    <td className="p-4 font-semibold">{h.broker}</td>
+                    <td className="p-4">
+                      <span className="font-medium">{h.name}</span> <span className="opacity-60">({h.symbol})</span>
+                    </td>
+                    <td className="p-4">
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${isFD ? 'bg-emerald-500/15 text-emerald-400' : 'bg-indigo-500/15 text-indigo-400'}`}>
+                        {h.category}
+                      </span>
+                    </td>
+                    <td className="p-4 opacity-90">{isFD ? `${h.principal.toLocaleString()} ${h.currency}` : h.quantity}</td>
+                    <td className="p-4 opacity-90">{isFD ? `${h.interest_rate}%` : `${h.market_price > 0 ? h.market_price : h.avg_price} ${h.currency}`}</td>
+                    <td className="p-4 font-bold text-white">{Math.round(h.baseVal).toLocaleString()} {baseCurrency}</td>
+                    <td className={`p-4 text-right font-semibold ${h.gain >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                      {h.gain >= 0 ? '+' : ''}{Math.round(h.gain).toLocaleString()} ({h.gainPct.toFixed(1)}%)
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Properties Table */}
       <div className={`border rounded-2xl overflow-hidden shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
         <div className="p-4 border-b flex justify-between items-center">
           <div className="flex items-center gap-2">
@@ -201,7 +367,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
             <tr>
               <th className="p-4">Property Name</th>
               <th className="p-4">Type</th>
-              <th className="p-4">Acquisition (MM/YYYY)</th>
+              <th className="p-4">Acquisition</th>
               <th className="p-4">Buy Price</th>
               <th className="p-4">Current Valuation</th>
               <th className="p-4 text-right">Gain / Loss</th>
@@ -236,7 +402,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         </table>
       </div>
 
-      {/* Liabilities & Loans Table */}
+      {/* Liabilities Table */}
       <div className={`border rounded-2xl overflow-hidden shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
         <div className="p-4 border-b flex justify-between items-center">
           <div className="flex items-center gap-2">
