@@ -8,8 +8,6 @@ import {
   Cpu,
   Cloud,
   Sparkles,
-  CheckCircle2,
-  EyeOff,
   Sun,
   Moon,
 } from 'lucide-react';
@@ -29,7 +27,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   onLaunchCreateOrUnlock,
   onLaunchRestore,
 }) => {
-  isDark = theme === 'dark';
+  const isDark = theme === 'dark';
 
   return (
     <div className={`min-h-screen ${isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
@@ -82,7 +80,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         </p>
       </section>
 
-      {/* Simple, Non-Technical Explainer Infographic */}
       <section className="max-w-6xl mx-auto px-6 py-8">
         <div className={`border rounded-3xl p-8 md:p-10 space-y-8 shadow-2xl ${isDark ? 'bg-slate-900/70 border-slate-800' : 'bg-white border-slate-200'}`}>
           <div className="text-center space-y-2">

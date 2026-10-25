@@ -4,7 +4,6 @@ declare module 'sql.js' {
     getAsObject(): Record<string, any>;
     free(): boolean;
   }
-
   export interface Database {
     run(sql: string, params?: any[]): Database;
     exec(sql: string, params?: any[]): Array<{ columns: string[]; values: any[][] }>;
@@ -12,14 +11,10 @@ declare module 'sql.js' {
     export(): Uint8Array;
     close(): void;
   }
-
   export interface SqlJsStatic {
     Database: new (data?: ArrayLike<number> | Buffer | null) => Database;
   }
-
-  export default function initSqlJs(config?: {
-    locateFile?: (file: string) => string;
-  }): Promise<SqlJsStatic>;
+  export default function initSqlJs(config?: { locateFile?: (file: string) => string }): Promise<SqlJsStatic>;
 }
 
 declare module '*.wasm?url' {
