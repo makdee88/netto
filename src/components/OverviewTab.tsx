@@ -2,7 +2,6 @@ import React from 'react';
 import {
   TrendingUp,
   PieChart,
-  ShieldCheck,
   PlusCircle,
   Building2,
   CreditCard,
@@ -33,7 +32,6 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
   fxRates,
   theme,
   onGoToManage,
-  onOpenPrivacyModal,
 }) => {
   const isDark = theme === 'dark';
   const snapshots = getSnapshots(db);
@@ -48,14 +46,20 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
   // Calculate true current market value for holdings (falls back to buy price if market price is 0)
   const holdingsWithValues = holdings.map((h) => {
     const isFD = h.category === 'FIXED_DEPOSIT';
-    const nativeVal = isFD
-      ? calculateFDCurrentValue(h)
-      : h.quantity * (h.market_price > 0 ? h.market_price : h.avg_price);
+    const effectiveMarketPrice = h.market_price > 0 ? h.market_price : h.avg_price;
+    const nativeVal = isFD ? calculateFDCurrentValue(h) : h.quantity * effectiveMarketPrice;
     const costVal = isFD ? h.principal : h.quantity * h.avg_price;
     const baseVal = convertToBase(nativeVal, h.currency);
     const baseCost = convertToBase(costVal, h.currency);
     const gain = baseVal - baseCost;
-    return { ...h, nativeVal, baseVal, gain, gainPct: baseCost > 0 ? (gain / baseCost) * 100 : 0 };
+    return {
+      ...h,
+      effectiveMarketPrice,
+      nativeVal,
+      baseVal,
+      gain,
+      gainPct: baseCost > 0 ? (gain / baseCost) * 100 : 0,
+    };
   });
 
   const totalFinancialAssets = holdingsWithValues.reduce((sum, h) => sum + h.baseVal, 0);
@@ -67,8 +71,12 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
 
   // Asset Class Allocation
   const assetBreakdown: Record<string, number> = {
-    'Equities & ETFs': holdingsWithValues.filter(h => h.category !== 'FIXED_DEPOSIT').reduce((s, h) => s + h.baseVal, 0),
-    'Fixed Deposits & Savings': holdingsWithValues.filter(h => h.category === 'FIXED_DEPOSIT').reduce((s, h) => s + h.baseVal, 0),
+    'Equities & Mutual Funds': holdingsWithValues
+      .filter((h) => h.category !== 'FIXED_DEPOSIT')
+      .reduce((s, h) => s + h.baseVal, 0),
+    'Fixed Deposits & Savings': holdingsWithValues
+      .filter((h) => h.category === 'FIXED_DEPOSIT')
+      .reduce((s, h) => s + h.baseVal, 0),
     'Real Estate': totalRealEstate,
   };
 
@@ -77,10 +85,10 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
 
   // Currency Exposure
   const currencyBreakdown: Record<string, number> = {};
-  holdingsWithValues.forEach(h => {
+  holdingsWithValues.forEach((h) => {
     currencyBreakdown[h.currency] = (currencyBreakdown[h.currency] || 0) + h.baseVal;
   });
-  properties.forEach(p => {
+  properties.forEach((p) => {
     currencyBreakdown[p.currency] = (currencyBreakdown[p.currency] || 0) + convertToBase(p.current_price, p.currency);
   });
 
@@ -90,7 +98,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
       <div className="grid md:grid-cols-4 gap-4">
         <div className={`border p-5 rounded-2xl shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
           <span className="text-[11px] uppercase tracking-wider opacity-60 font-semibold">Net Worth</span>
-          <div className="text-2xl font-extrabold mt-1 text-indigo-400">
+          <div className="text-2xl font-extrabold mt-1 text-indigo-500">
             {Math.round(netWorth).toLocaleString()} {baseCurrency}
           </div>
           <span className="text-[10px] opacity-60">Total Assets minus Liabilities</span>
@@ -98,7 +106,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
 
         <div className={`border p-5 rounded-2xl shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
           <span className="text-[11px] uppercase tracking-wider opacity-60 font-semibold">Total Gross Assets</span>
-          <div className="text-2xl font-extrabold mt-1 text-emerald-400 flex items-center gap-1">
+          <div className="text-2xl font-extrabold mt-1 text-emerald-500 flex items-center gap-1">
             <ArrowUpRight className="w-5 h-5" /> {Math.round(totalAssets).toLocaleString()} {baseCurrency}
           </div>
           <span className="text-[10px] opacity-60">Equities, FDs & Properties (Current Value)</span>
@@ -106,7 +114,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
 
         <div className={`border p-5 rounded-2xl shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
           <span className="text-[11px] uppercase tracking-wider opacity-60 font-semibold">Total Liabilities</span>
-          <div className="text-2xl font-extrabold mt-1 text-rose-400 flex items-center gap-1">
+          <div className="text-2xl font-extrabold mt-1 text-rose-500 flex items-center gap-1">
             <ArrowDownRight className="w-5 h-5" /> {Math.round(totalLiabilities).toLocaleString()} {baseCurrency}
           </div>
           <span className="text-[10px] opacity-60">Mortgages & Loans</span>
@@ -114,7 +122,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
 
         <div className={`border p-5 rounded-2xl shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
           <span className="text-[11px] uppercase tracking-wider opacity-60 font-semibold">Debt-to-Asset Ratio</span>
-          <div className={`text-2xl font-extrabold mt-1 ${debtToAssetRatio > 50 ? 'text-rose-400' : 'text-indigo-400'}`}>
+          <div className={`text-2xl font-extrabold mt-1 ${debtToAssetRatio > 50 ? 'text-rose-500' : 'text-indigo-500'}`}>
             {debtToAssetRatio.toFixed(1)}%
           </div>
           <span className="text-[10px] opacity-60">{debtToAssetRatio < 40 ? 'Healthy Leverage' : 'High Leverage'}</span>
@@ -127,20 +135,22 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         <div className={`border p-6 rounded-2xl space-y-4 shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <TrendingUp className="w-5 h-5 text-indigo-400" />
+              <TrendingUp className="w-5 h-5 text-indigo-500" />
               <h2 className="font-bold text-base">Net Worth & Asset Trajectory Over Time</h2>
             </div>
-            <button onClick={onGoToManage} className="text-xs text-indigo-400 hover:underline font-semibold flex items-center gap-1">
+            <button onClick={onGoToManage} className="text-xs text-indigo-500 hover:underline font-semibold flex items-center gap-1">
               <PlusCircle className="w-3.5 h-3.5" /> Update Data
             </button>
           </div>
 
           <div className="space-y-3">
-            <div className="h-48 flex items-end gap-3 pt-6 px-2 border-b border-slate-800 relative">
+            <div className={`h-48 flex items-end gap-3 pt-6 px-2 border-b relative ${isDark ? 'border-slate-800' : 'border-slate-200'}`}>
               {snapshots.length === 0 ? (
                 <div className="absolute inset-0 flex flex-col items-center justify-center text-center opacity-60 text-xs space-y-1">
                   <p>Historical snapshots record automatically as you open or update your portfolio.</p>
-                  <span className="text-[11px] text-indigo-400 font-bold">Current Net Worth: {Math.round(netWorth).toLocaleString()} {baseCurrency}</span>
+                  <span className="text-[11px] text-indigo-500 font-bold">
+                    Current Net Worth: {Math.round(netWorth).toLocaleString()} {baseCurrency}
+                  </span>
                 </div>
               ) : (
                 snapshots.map((s, idx) => {
@@ -150,8 +160,16 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                   return (
                     <div key={idx} className="flex-1 flex flex-col items-center gap-1 group relative h-full justify-end">
                       <div className="w-full flex items-end gap-1 h-full">
-                        <div style={{ height: `${assetH}%` }} className="w-1/2 bg-emerald-500/80 hover:bg-emerald-400 rounded-t transition-all" title={`Total Assets: ${Math.round(s.assets)}`} />
-                        <div style={{ height: `${netH}%` }} className="w-1/2 bg-indigo-500 hover:bg-indigo-400 rounded-t transition-all" title={`Net Worth: ${Math.round(s.netWorth)}`} />
+                        <div
+                          style={{ height: `${assetH}%` }}
+                          className="w-1/2 bg-emerald-500/80 hover:bg-emerald-400 rounded-t transition-all"
+                          title={`Total Assets: ${Math.round(s.assets)}`}
+                        />
+                        <div
+                          style={{ height: `${netH}%` }}
+                          className="w-1/2 bg-indigo-500 hover:bg-indigo-400 rounded-t transition-all"
+                          title={`Net Worth: ${Math.round(s.netWorth)}`}
+                        />
                       </div>
                       <span className="text-[9px] opacity-70 truncate pt-1">{s.date.slice(5)}</span>
                     </div>
@@ -161,8 +179,12 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
             </div>
             <div className="flex justify-between items-center text-xs opacity-80 pt-1">
               <div className="flex items-center gap-4">
-                <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block" /> Total Assets</span>
-                <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-indigo-500 inline-block" /> Net Worth</span>
+                <span className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block" /> Total Assets
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-indigo-500 inline-block" /> Net Worth
+                </span>
               </div>
               <span className="text-[10px] opacity-60">Updated Daily</span>
             </div>
@@ -172,7 +194,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         {/* Asset Class Allocation */}
         <div className={`border p-6 rounded-2xl space-y-4 shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
           <div className="flex items-center gap-2">
-            <PieChart className="w-5 h-5 text-emerald-400" />
+            <PieChart className="w-5 h-5 text-emerald-500" />
             <h2 className="font-bold text-base">Gross Asset Allocation</h2>
           </div>
 
@@ -193,7 +215,13 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                     <div className={`w-full h-2.5 rounded-full overflow-hidden ${isDark ? 'bg-slate-950' : 'bg-slate-100'}`}>
                       <div
                         style={{ width: `${pct}%` }}
-                        className={`h-full rounded-full ${category.includes('Real') ? 'bg-amber-500' : category.includes('Fixed') ? 'bg-emerald-500' : 'bg-indigo-500'}`}
+                        className={`h-full rounded-full ${
+                          category.includes('Real')
+                            ? 'bg-amber-500'
+                            : category.includes('Fixed')
+                            ? 'bg-emerald-500'
+                            : 'bg-indigo-500'
+                        }`}
                       />
                     </div>
                   </div>
@@ -208,7 +236,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
       <div className={`border p-6 rounded-2xl space-y-4 shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Layers className="w-5 h-5 text-indigo-400" />
+            <Layers className="w-5 h-5 text-indigo-500" />
             <h2 className="font-bold text-base">Stock & Fund Concentration (Top Holdings)</h2>
           </div>
           <span className="text-xs opacity-60">{sortedHoldings.length} Total Holdings</span>
@@ -218,17 +246,20 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
           {sortedHoldings.length === 0 ? (
             <p className="text-xs opacity-60 text-center py-6">No stock or fund holdings imported yet.</p>
           ) : (
-            sortedHoldings.slice(0, 8).map((h) => {
+            sortedHoldings.slice(0, 10).map((h) => {
               const pct = totalAssets > 0 ? (h.baseVal / totalAssets) * 100 : 0;
               return (
                 <div key={h.id} className="space-y-1 text-xs">
                   <div className="flex justify-between font-medium">
                     <span className="flex items-center gap-2">
-                      <b className="text-white">{h.name}</b>
-                      <span className="opacity-60 text-[10px]">({h.symbol} • {h.broker})</span>
+                      <b className={isDark ? 'text-white' : 'text-slate-900'}>{h.name}</b>
+                      <span className="opacity-60 text-[10px]">
+                        ({h.symbol !== h.name ? `${h.symbol} • ` : ''}{h.broker})
+                      </span>
                     </span>
                     <span>
-                      {Math.round(h.baseVal).toLocaleString()} {baseCurrency} <b className="text-indigo-400">({pct.toFixed(1)}%)</b>
+                      {Math.round(h.baseVal).toLocaleString()} {baseCurrency}{' '}
+                      <b className="text-indigo-500">({pct.toFixed(1)}%)</b>
                     </span>
                   </div>
                   <div className={`w-full h-2 rounded-full overflow-hidden ${isDark ? 'bg-slate-950' : 'bg-slate-100'}`}>
@@ -243,10 +274,9 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
 
       {/* Additional Analytics Row: Currency Exposure & Upcoming FD Maturities */}
       <div className="grid md:grid-cols-2 gap-6">
-        {/* Currency Exposure Analytics */}
         <div className={`border p-6 rounded-2xl space-y-4 shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
           <div className="flex items-center gap-2">
-            <Globe2 className="w-5 h-5 text-sky-400" />
+            <Globe2 className="w-5 h-5 text-sky-500" />
             <h2 className="font-bold text-base">Multi-Currency Exposure</h2>
           </div>
           <div className="space-y-3 pt-1">
@@ -259,7 +289,9 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                   <div key={curr} className="space-y-1 text-xs">
                     <div className="flex justify-between font-medium">
                       <span>{curr} Denominated Assets</span>
-                      <span>{Math.round(val).toLocaleString()} {baseCurrency} ({pct.toFixed(1)}%)</span>
+                      <span>
+                        {Math.round(val).toLocaleString()} {baseCurrency} ({pct.toFixed(1)}%)
+                      </span>
                     </div>
                     <div className={`w-full h-2 rounded-full overflow-hidden ${isDark ? 'bg-slate-950' : 'bg-slate-100'}`}>
                       <div style={{ width: `${pct}%` }} className="h-full rounded-full bg-sky-500" />
@@ -271,38 +303,48 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
           </div>
         </div>
 
-        {/* Fixed Deposit / Savings Maturity Timeline */}
         <div className={`border p-6 rounded-2xl space-y-4 shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
           <div className="flex items-center gap-2">
-            <Calendar className="w-5 h-5 text-emerald-400" />
+            <Calendar className="w-5 h-5 text-emerald-500" />
             <h2 className="font-bold text-base">Fixed Deposit Maturities</h2>
           </div>
           <div className="space-y-2 text-xs">
-            {holdingsWithValues.filter(h => h.category === 'FIXED_DEPOSIT').length === 0 ? (
+            {holdingsWithValues.filter((h) => h.category === 'FIXED_DEPOSIT').length === 0 ? (
               <p className="text-xs opacity-60 text-center py-6">No Fixed Deposits recorded.</p>
             ) : (
-              holdingsWithValues.filter(h => h.category === 'FIXED_DEPOSIT').map(fd => (
-                <div key={fd.id} className={`p-3 rounded-xl border flex justify-between items-center ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-                  <div>
-                    <span className="font-bold text-white">{fd.name}</span>
-                    <p className="text-[10px] opacity-60">{fd.broker} • {fd.interest_rate}% interest</p>
+              holdingsWithValues
+                .filter((h) => h.category === 'FIXED_DEPOSIT')
+                .map((fd) => (
+                  <div
+                    key={fd.id}
+                    className={`p-3 rounded-xl border flex justify-between items-center ${
+                      isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    }`}
+                  >
+                    <div>
+                      <span className={`font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>{fd.name}</span>
+                      <p className="text-[10px] opacity-60">
+                        {fd.broker} • {fd.interest_rate}% interest
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <span className="font-semibold text-emerald-500">{fd.maturity_date || 'No maturity date'}</span>
+                      <p className="text-[10px] opacity-60">
+                        {Math.round(fd.baseVal).toLocaleString()} {baseCurrency}
+                      </p>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <span className="font-semibold text-emerald-400">{fd.maturity_date || 'No maturity date'}</span>
-                    <p className="text-[10px] opacity-60">{Math.round(fd.baseVal).toLocaleString()} {baseCurrency}</p>
-                  </div>
-                </div>
-              ))
+                ))
             )}
           </div>
         </div>
       </div>
 
-      {/* Holdings Table with Live Market Values and Unrealized Gains */}
+      {/* Holdings Table with Prominent Fund Names, Live Market Values & Light-Mode Support */}
       <div className={`border rounded-2xl overflow-hidden shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
-        <div className="p-4 border-b flex justify-between items-center">
+        <div className={`p-4 border-b flex justify-between items-center ${isDark ? 'border-slate-800' : 'border-slate-200'}`}>
           <h3 className="font-bold text-sm">Consolidated Portfolio Holdings (Live Valuation)</h3>
-          <button onClick={onGoToManage} className="text-xs text-indigo-400 hover:underline font-semibold">
+          <button onClick={onGoToManage} className="text-xs text-indigo-500 hover:underline font-semibold">
             + Add or Edit Holdings
           </button>
         </div>
@@ -310,10 +352,10 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
           <thead className={`border-b uppercase tracking-wider ${isDark ? 'bg-slate-950/80 border-slate-800 text-slate-400' : 'bg-slate-100 border-slate-200 text-slate-600'}`}>
             <tr>
               <th className="p-4">Broker / Bank</th>
-              <th className="p-4">Asset</th>
+              <th className="p-4">Fund / Stock Name</th>
               <th className="p-4">Category</th>
               <th className="p-4">Qty / Principal</th>
-              <th className="p-4">Market Price / Rate</th>
+              <th className="p-4">Buy Avg vs Market Price</th>
               <th className="p-4">Current Market Value</th>
               <th className="p-4 text-right">Unrealized Gain / Loss</th>
             </tr>
@@ -332,19 +374,45 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                   <tr key={h.id} className={isDark ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}>
                     <td className="p-4 font-semibold">{h.broker}</td>
                     <td className="p-4">
-                      <span className={`font-bold block ${isDark ? 'text-white' : 'text-slate-900'}`}>{h.name}</span>
-                      <span className="opacity-50 text-[10px] font-mono">{h.symbol}</span>
+                      <span className={`font-bold text-sm block ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                        {h.name}
+                      </span>
+                      {h.symbol && h.symbol !== h.name && (
+                        <span className="opacity-50 text-[10px] font-mono">ISIN/Ticker: {h.symbol}</span>
+                      )}
                     </td>
                     <td className="p-4">
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${isFD ? 'bg-emerald-500/15 text-emerald-400' : 'bg-indigo-500/15 text-indigo-400'}`}>
+                      <span
+                        className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
+                          isFD ? 'bg-emerald-500/15 text-emerald-500' : 'bg-indigo-500/15 text-indigo-500'
+                        }`}
+                      >
                         {h.category}
                       </span>
                     </td>
-                    <td className="p-4 opacity-90">{isFD ? `${h.principal.toLocaleString()} ${h.currency}` : h.quantity}</td>
-                    <td className="p-4 opacity-90">{isFD ? `${h.interest_rate}%` : `${h.market_price > 0 ? h.market_price : h.avg_price} ${h.currency}`}</td>
-                    <td className="p-4 font-bold text-white">{Math.round(h.baseVal).toLocaleString()} {baseCurrency}</td>
-                    <td className={`p-4 text-right font-semibold ${h.gain >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                      {h.gain >= 0 ? '+' : ''}{Math.round(h.gain).toLocaleString()} ({h.gainPct.toFixed(1)}%)
+                    <td className="p-4 opacity-90">
+                      {isFD ? `${h.principal.toLocaleString()} ${h.currency}` : h.quantity.toLocaleString()}
+                    </td>
+                    <td className="p-4 opacity-90">
+                      {isFD ? (
+                        `${h.interest_rate}%`
+                      ) : (
+                        <div>
+                          <span className="font-semibold">
+                            {h.effectiveMarketPrice.toFixed(2)} {h.currency}
+                          </span>
+                          <span className="block text-[10px] opacity-60">
+                            Avg buy: {h.avg_price.toFixed(2)} {h.currency}
+                          </span>
+                        </div>
+                      )}
+                    </td>
+                    <td className={`p-4 font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                      {Math.round(h.baseVal).toLocaleString()} {baseCurrency}
+                    </td>
+                    <td className={`p-4 text-right font-semibold ${h.gain >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                      {h.gain >= 0 ? '+' : ''}
+                      {Math.round(h.gain).toLocaleString()} ({h.gainPct.toFixed(1)}%)
                     </td>
                   </tr>
                 );
@@ -356,12 +424,14 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
 
       {/* Properties Table */}
       <div className={`border rounded-2xl overflow-hidden shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
-        <div className="p-4 border-b flex justify-between items-center">
+        <div className={`p-4 border-b flex justify-between items-center ${isDark ? 'border-slate-800' : 'border-slate-200'}`}>
           <div className="flex items-center gap-2">
-            <Building2 className="w-4 h-4 text-amber-400" />
+            <Building2 className="w-4 h-4 text-amber-500" />
             <h3 className="font-bold text-sm">Real Estate & Properties</h3>
           </div>
-          <button onClick={onGoToManage} className="text-xs text-indigo-400 hover:underline font-semibold">+ Add Property</button>
+          <button onClick={onGoToManage} className="text-xs text-indigo-500 hover:underline font-semibold">
+            + Add Property
+          </button>
         </div>
         <table className="w-full text-left text-xs">
           <thead className={`border-b uppercase tracking-wider ${isDark ? 'bg-slate-950/80 border-slate-800 text-slate-400' : 'bg-slate-100 border-slate-200 text-slate-600'}`}>
@@ -377,7 +447,9 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
           <tbody className={`divide-y ${isDark ? 'divide-slate-800/70' : 'divide-slate-200'}`}>
             {properties.length === 0 ? (
               <tr>
-                <td colSpan={6} className="p-8 text-center opacity-60">No properties added yet.</td>
+                <td colSpan={6} className="p-8 text-center opacity-60">
+                  No properties added yet.
+                </td>
               </tr>
             ) : (
               properties.map((p) => {
@@ -389,11 +461,18 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                   <tr key={p.id} className={isDark ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}>
                     <td className="p-4 font-semibold">{p.name}</td>
                     <td className="p-4 uppercase text-[10px] font-bold">{p.property_type}</td>
-                    <td className="p-4 opacity-80">{p.buy_month}/{p.buy_year}</td>
-                    <td className="p-4 opacity-80">{Math.round(buyBase).toLocaleString()} {baseCurrency}</td>
-                    <td className="p-4 font-bold text-emerald-400">{Math.round(curBase).toLocaleString()} {baseCurrency}</td>
-                    <td className={`p-4 text-right font-semibold ${gain >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                      {gain >= 0 ? '+' : ''}{Math.round(gain).toLocaleString()} ({gainPct.toFixed(1)}%)
+                    <td className="p-4 opacity-80">
+                      {p.buy_month}/{p.buy_year}
+                    </td>
+                    <td className="p-4 opacity-80">
+                      {Math.round(buyBase).toLocaleString()} {baseCurrency}
+                    </td>
+                    <td className="p-4 font-bold text-emerald-500">
+                      {Math.round(curBase).toLocaleString()} {baseCurrency}
+                    </td>
+                    <td className={`p-4 text-right font-semibold ${gain >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                      {gain >= 0 ? '+' : ''}
+                      {Math.round(gain).toLocaleString()} ({gainPct.toFixed(1)}%)
                     </td>
                   </tr>
                 );
@@ -405,12 +484,14 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
 
       {/* Liabilities Table */}
       <div className={`border rounded-2xl overflow-hidden shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
-        <div className="p-4 border-b flex justify-between items-center">
+        <div className={`p-4 border-b flex justify-between items-center ${isDark ? 'border-slate-800' : 'border-slate-200'}`}>
           <div className="flex items-center gap-2">
-            <CreditCard className="w-4 h-4 text-rose-400" />
+            <CreditCard className="w-4 h-4 text-rose-500" />
             <h3 className="font-bold text-sm">Liabilities & Outstanding Loans</h3>
           </div>
-          <button onClick={onGoToManage} className="text-xs text-indigo-400 hover:underline font-semibold">+ Add Liability</button>
+          <button onClick={onGoToManage} className="text-xs text-indigo-500 hover:underline font-semibold">
+            + Add Liability
+          </button>
         </div>
         <table className="w-full text-left text-xs">
           <thead className={`border-b uppercase tracking-wider ${isDark ? 'bg-slate-950/80 border-slate-800 text-slate-400' : 'bg-slate-100 border-slate-200 text-slate-600'}`}>
@@ -425,7 +506,9 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
           <tbody className={`divide-y ${isDark ? 'divide-slate-800/70' : 'divide-slate-200'}`}>
             {liabilities.length === 0 ? (
               <tr>
-                <td colSpan={5} className="p-8 text-center opacity-60">No liabilities recorded yet.</td>
+                <td colSpan={5} className="p-8 text-center opacity-60">
+                  No liabilities recorded yet.
+                </td>
               </tr>
             ) : (
               liabilities.map((l) => {
@@ -435,9 +518,13 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                   <tr key={l.id} className={isDark ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}>
                     <td className="p-4 font-semibold">{l.name}</td>
                     <td className="p-4 uppercase text-[10px] font-bold">{l.liability_type}</td>
-                    <td className="p-4 text-amber-400 font-semibold">{l.interest_rate}%</td>
-                    <td className="p-4 opacity-80">{Math.round(origBase).toLocaleString()} {baseCurrency}</td>
-                    <td className="p-4 text-right font-bold text-rose-400">{Math.round(remBase).toLocaleString()} {baseCurrency}</td>
+                    <td className="p-4 text-amber-500 font-semibold">{l.interest_rate}%</td>
+                    <td className="p-4 opacity-80">
+                      {Math.round(origBase).toLocaleString()} {baseCurrency}
+                    </td>
+                    <td className="p-4 text-right font-bold text-rose-500">
+                      {Math.round(remBase).toLocaleString()} {baseCurrency}
+                    </td>
                   </tr>
                 );
               })
