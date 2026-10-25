@@ -21,6 +21,7 @@ interface ManageAssetsTabProps {
   theme: 'dark' | 'light';
   onBackToOverview: () => void;
   onCsvImport: (file: File, broker: BrokerType) => void;
+  onClearBroker: (brokerName: string) => void; // Added prop
   onAddFD: (fd: {
     broker: string;
     symbol: string;
@@ -185,22 +186,21 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                   <Upload className="w-4 h-4" /> Import & Replay Ledger
                 </button>
 
-                {/* Reset Broker History Button */}
+                {/* Explicit Clear Broker History Button */}
                 <button
                   type="button"
                   onClick={() => {
                     const brokerLabel = activeBroker === 'AVANZA' ? 'Avanza' : activeBroker === 'NORDNET' ? 'Nordnet' : activeBroker;
-                    if (confirm(`Are you sure you want to clear all transaction history and holdings for ${brokerLabel}? This allows a completely clean re-import.`)) {
-                      clearBrokerData(db, brokerLabel);
-                      window.location.reload();
+                    if (confirm(`Clear all transaction history and holdings for ${brokerLabel}?\n\nThis will permanently remove all stored trades for this broker from your vault so you can start fresh.`)) {
+                      onClearBroker(brokerLabel);
                     }
                   }}
-                  className={`px-3 py-3 rounded-xl text-xs font-semibold border flex items-center gap-1 transition ${
+                  className={`px-4 py-3 rounded-xl text-xs font-semibold border flex items-center justify-center gap-1.5 transition ${
                     isDark ? 'bg-rose-500/10 border-rose-500/30 text-rose-400 hover:bg-rose-500/20' : 'bg-rose-50 border-rose-200 text-rose-600 hover:bg-rose-100'
                   }`}
-                  title={`Clear all stored transactions & holdings for ${activeBroker}`}
+                  title={`Permanently delete all stored transactions & holdings for ${activeBroker}`}
                 >
-                  <Trash2 className="w-4 h-4" /> Reset
+                  <Trash2 className="w-4 h-4" /> Clear {activeBroker} History
                 </button>
               </div>
             </div>
