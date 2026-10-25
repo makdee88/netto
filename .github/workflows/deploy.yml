@@ -1,9 +1,7 @@
-name: Build and Deploy Netto to Cloudflare Pages
+name: Build and Deploy Netto Manually
 
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch: # Enables the "Run workflow" button in GitHub Actions
 
 jobs:
   deploy:
@@ -24,7 +22,7 @@ jobs:
       - name: Install Dependencies
         run: npm install
 
-      - name: Build Application (Injecting GitHub Secrets)
+      - name: Build Application
         env:
           VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
         run: npm run build
