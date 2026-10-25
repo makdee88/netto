@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import type { Database } from 'sql.js';
-import { initDatabase } from './db/database';
+import { initDatabase, recordSnapshot } from './db/database';
 import {
   encryptSqliteBytes,
   decryptSqliteBytes,
@@ -12,16 +12,24 @@ import { syncToGoogleDrive, loadFromGoogleDrive } from './sync/googleDrive';
 import { BrokerType, CurrencyCode, HoldingRow } from './types';
 import { LandingPage } from './components/LandingPage';
 import { VaultAuthScreen, AuthMode } from './components/VaultAuthScreen';
-import { PortfolioDashboard } from './components/PortfolioDashboard';
+import { OverviewTab } from './components/OverviewTab';
+import { ManageAssetsTab } from './components/ManageAssetsTab';
 import { PrivacyArchitectureModal } from './components/PrivacyArchitectureModal';
 import { ChangePassphraseModal } from './components/ChangePassphraseModal';
-
-const DEFAULT_FX_TO_SEK: Record<string, number> = {
-  SEK: 1,
-  USD: 10.45,
-  EUR: 11.35,
-  INR: 0.125,
-};
+import {
+  ShieldCheck,
+  CloudUpload,
+  CloudDownload,
+  Download,
+  Upload,
+  RefreshCw,
+  Info,
+  KeyRound,
+  Sun,
+  Moon,
+  LayoutDashboard,
+  PlusCircle,
+} from 'lucide-react';
 
 const STORAGE_KEY = 'netto_encrypted_vault_v2';
 const THEME_KEY = 'netto_color_theme';
@@ -29,9 +37,11 @@ const GOOGLE_CLIENT_ID =
   (import.meta as any).env?.VITE_GOOGLE_CLIENT_ID || 'YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com';
 
 type AppStep = 'LANDING' | 'AUTH' | 'DASHBOARD';
+type DashboardSubTab = 'OVERVIEW' | 'MANAGE';
 
 export default function App() {
   const [step, setStep] = useState<AppStep>('LANDING');
+  const [subTab, setSubTab] = useState<DashboardSubTab>('OVERVIEW');
   const [authMode, setAuthMode] = useState<AuthMode>('CREATE_OR_UNLOCK');
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
 
@@ -43,7 +53,7 @@ export default function App() {
 
   const [holdings, setHoldings] = useState<HoldingRow[]>([]);
   const [baseCurrency, setBaseCurrency] = useState<CurrencyCode>('SEK');
-  const [fxRates, setFxRates] = useState<Record<string, number>>(DEFAULT_FX_TO_SEK);
+  const [fxRates, setFxRates] = useState<Record<string, number>>({ SEK: 1, USD: 10.45, EUR: 11.35, INR: 0.125 });
   const [statusMsg, setStatusMsg] = useState<string>('Vault Locked');
   const [googleToken, setGoogleToken] = useState<string | null>(null);
 
@@ -65,6 +75,14 @@ export default function App() {
     while (stmt.step()) rows.push(stmt.getAsObject() as unknown as HoldingRow);
     stmt.free();
     setHoldings(rows);
+
+    // Calculate total base currency and record historical snapshot
+    const total = rows.reduce((sum, h) => {
+      const nativeVal = h.category === 'FIXED_DEPOSIT' ? h.principal : h.quantity * h.market_price;
+      const inSek = nativeVal * (fxRates[h.currency] || 1);
+      return sum + inSek / (fxRates[baseCurrency] || 1);
+    }, 0);
+    recordSnapshot(database, total);
   };
 
   const persistEncryptedVault = async (database: Database, activePass = passphrase) => {
@@ -196,126 +214,181 @@ export default function App() {
     );
   }
 
+  const isDark = theme === 'dark';
+
   return (
-    <div className={`min-h-screen ${theme === 'dark' ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
-      <PortfolioDashboard
-        holdings={holdings}
-        baseCurrency={baseCurrency}
-        setBaseCurrency={setBaseCurrency}
-        fxRates={fxRates}
-        statusMsg={statusMsg}
-        theme={theme}
-        onToggleTheme={toggleTheme}
-        onGoLanding={() => setStep('LANDING')}
-        onOpenPrivacyModal={() => setShowSecurityModal(true)}
-        onOpenPassModal={() => setShowPassModal(true)}
-        onSyncLivePrices={async () => {
-          const symbols = holdings.filter((h) => h.category === 'EQUITY').map((h) => h.symbol);
-          const vaultRes = db.exec("SELECT value FROM app_config WHERE key = 'vault_id'");
-          const vaultId = (vaultRes[0]?.values[0]?.[0] as string) || 'anon';
-          setStatusMsg('Fetching anonymous quotes via Cloudflare Edge...');
-          try {
-            const res = await fetch(`/api/quotes?symbols=${encodeURIComponent(symbols.join(','))}`, {
-              headers: { 'X-Vault-Id': vaultId, 'X-Base-Currency': baseCurrency },
-            });
-            if (!res.ok) throw new Error();
-            const data = await res.json();
-            if (data.fxRates) setFxRates(data.fxRates);
-            if (data.quotes) {
-              db.run('BEGIN TRANSACTION');
-              for (const [sym, price] of Object.entries(data.quotes)) {
-                db.run('UPDATE holdings SET market_price = ?, updated_at = CURRENT_TIMESTAMP WHERE symbol = ?', [
-                  Number(price),
-                  sym,
-                ]);
+    <div className={`min-h-screen ${isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
+      {/* Top Header & Navigation */}
+      <header className={`max-w-7xl mx-auto px-6 py-4 flex flex-wrap justify-between items-center gap-4 border-b ${isDark ? 'border-slate-800 bg-slate-900/80' : 'border-slate-200 bg-white shadow-sm'}`}>
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
+            <ShieldCheck className="w-6 h-6" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h1
+                onClick={() => setStep('LANDING')}
+                className="text-xl font-bold tracking-tight cursor-pointer hover:text-indigo-400 transition"
+                title="View Landing Page"
+              >
+                netto
+              </h1>
+              <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full font-medium">
+                AES-256 Unlocked
+              </span>
+            </div>
+            <p className="text-xs opacity-75">{statusMsg}</p>
+          </div>
+        </div>
+
+        {/* Dashboard Sub-Tab Switcher */}
+        <div className="flex gap-1 bg-slate-950/20 p-1 rounded-xl text-xs font-semibold">
+          <button
+            onClick={() => setSubTab('OVERVIEW')}
+            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg transition ${subTab === 'OVERVIEW' ? 'bg-indigo-600 text-white shadow' : 'opacity-70 hover:opacity-100'}`}
+          >
+            <LayoutDashboard className="w-3.5 h-3.5" /> Overview & Analytics
+          </button>
+          <button
+            onClick={() => setSubTab('MANAGE')}
+            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg transition ${subTab === 'MANAGE' ? 'bg-indigo-600 text-white shadow' : 'opacity-70 hover:opacity-100'}`}
+          >
+            <PlusCircle className="w-3.5 h-3.5" /> Manage & Import Assets
+          </button>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={toggleTheme}
+            className={`p-2 rounded-lg border transition ${isDark ? 'bg-slate-800 border-slate-700 text-yellow-400' : 'bg-slate-100 border-slate-300 text-slate-700'}`}
+            title="Toggle Theme"
+          >
+            {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+          </button>
+          <button
+            onClick={() => setShowSecurityModal(true)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border ${isDark ? 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-200' : 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-700'}`}
+          >
+            <Info className="w-3.5 h-3.5 text-indigo-400" /> Privacy
+          </button>
+          <button
+            onClick={() => setShowPassModal(true)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border ${isDark ? 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-200' : 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-700'}`}
+          >
+            <KeyRound className="w-3.5 h-3.5 text-indigo-400" /> Passphrase
+          </button>
+          <select
+            value={baseCurrency}
+            onChange={(e) => setBaseCurrency(e.target.value as CurrencyCode)}
+            className={`border rounded-lg px-3 py-1.5 text-xs font-semibold ${isDark ? 'bg-slate-950 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'}`}
+          >
+            <option value="SEK">SEK (kr)</option>
+            <option value="INR">INR (₹)</option>
+            <option value="USD">USD ($)</option>
+            <option value="EUR">EUR (€)</option>
+          </select>
+          <button
+            onClick={async () => {
+              const symbols = holdings.filter((h) => h.category === 'EQUITY').map((h) => h.symbol);
+              const vaultRes = db.exec("SELECT value FROM app_config WHERE key = 'vault_id'");
+              const vaultId = (vaultRes[0]?.values[0]?.[0] as string) || 'anon';
+              setStatusMsg('Fetching anonymous quotes via Cloudflare Edge...');
+              try {
+                const res = await fetch(`/api/quotes?symbols=${encodeURIComponent(symbols.join(','))}`, {
+                  headers: { 'X-Vault-Id': vaultId, 'X-Base-Currency': baseCurrency },
+                });
+                if (!res.ok) throw new Error();
+                const data = await res.json();
+                if (data.fxRates) setFxRates(data.fxRates);
+                if (data.quotes) {
+                  db.run('BEGIN TRANSACTION');
+                  for (const [sym, price] of Object.entries(data.quotes)) {
+                    db.run('UPDATE holdings SET market_price = ?, updated_at = CURRENT_TIMESTAMP WHERE symbol = ?', [
+                      Number(price),
+                      sym,
+                    ]);
+                  }
+                  db.run('COMMIT');
+                  await persistEncryptedVault(db);
+                }
+                setStatusMsg('Live market prices & FX updated!');
+              } catch {
+                setStatusMsg('Using cached/CSV prices');
               }
-              db.run('COMMIT');
+            }}
+            className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg text-xs font-semibold"
+          >
+            <RefreshCw className="w-3.5 h-3.5" /> Prices
+          </button>
+          <button
+            onClick={() =>
+              withGoogleAuth(async (token) => {
+                setStatusMsg('Encrypting & uploading to Google Drive...');
+                const enc = await encryptSqliteBytes(db.export(), passphrase);
+                setStatusMsg(await syncToGoogleDrive(token, enc));
+              })
+            }
+            className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-lg text-xs font-semibold shadow"
+          >
+            <CloudUpload className="w-3.5 h-3.5" /> Save to Google Drive
+          </button>
+        </div>
+      </header>
+
+      {/* Main Content Area: Sub-Tab Router */}
+      <main className="max-w-7xl mx-auto p-6">
+        {subTab === 'OVERVIEW' ? (
+          <OverviewTab
+            db={db}
+            holdings={holdings}
+            baseCurrency={baseCurrency}
+            fxRates={fxRates}
+            theme={theme}
+            onGoToManage={() => setSubTab('MANAGE')}
+            onOpenPrivacyModal={() => setShowSecurityModal(true)}
+          />
+        ) : (
+          <ManageAssetsTab
+            holdings={holdings}
+            theme={theme}
+            onBackToOverview={() => setSubTab('OVERVIEW')}
+            onCsvImport={(file, broker) =>
+              importBrokerCsv(file, broker, db, async (count) => {
+                await persistEncryptedVault(db);
+                setStatusMsg(`Upserted ${count} holdings from ${broker}`);
+              })
+            }
+            onAddFD={async (fd) => {
+              db.run(
+                `INSERT INTO holdings (broker, category, symbol, name, currency, principal, interest_rate, compounding_freq, start_date, maturity_date)
+                 VALUES (?, 'FIXED_DEPOSIT', ?, ?, ?, ?, ?, ?, ?, ?)
+                 ON CONFLICT(broker, symbol) DO UPDATE SET
+                   principal = excluded.principal,
+                   interest_rate = excluded.interest_rate,
+                   maturity_date = excluded.maturity_date`,
+                [
+                  fd.broker,
+                  fd.symbol,
+                  fd.name,
+                  fd.currency,
+                  fd.principal,
+                  fd.interest_rate,
+                  fd.compounding_freq,
+                  fd.start_date,
+                  fd.maturity_date,
+                ]
+              );
               await persistEncryptedVault(db);
-            }
-            setStatusMsg('Live market prices & FX updated!');
-          } catch {
-            setStatusMsg('Using cached/CSV prices');
-          }
-        }}
-        onDriveBackup={() =>
-          withGoogleAuth(async (token) => {
-            setStatusMsg('Encrypting & uploading to Google Drive...');
-            const enc = await encryptSqliteBytes(db.export(), passphrase);
-            setStatusMsg(await syncToGoogleDrive(token, enc));
-          })
-        }
-        onDriveRestore={() =>
-          withGoogleAuth(async (token) => {
-            setStatusMsg('Downloading encrypted vault from Google Drive...');
-            const enc = await loadFromGoogleDrive(token);
-            if (!enc) return setStatusMsg('No vault found in Google Drive yet.');
-            try {
-              const dec = await decryptSqliteBytes(enc, passphrase);
-              const restoredDb = await initDatabase(dec);
-              setDb(restoredDb);
-              await persistEncryptedVault(restoredDb, passphrase);
-              setStatusMsg('Restored & Decrypted Netto Vault from Google Drive!');
-            } catch {
-              setStatusMsg('Drive file uses a different passphrase than current session.');
-            }
-          })
-        }
-        onDownloadEncryptedFile={async () => {
-          const enc = await encryptSqliteBytes(db.export(), passphrase);
-          const blob = new Blob([enc.buffer as ArrayBuffer], { type: 'application/octet-stream' });
-          const a = document.createElement('a');
-          a.href = URL.createObjectURL(blob);
-          a.download = `netto_${new Date().toISOString().slice(0, 10)}.sqlite.enc`;
-          a.click();
-          setStatusMsg('Downloaded AES-256 Encrypted .sqlite.enc backup');
-        }}
-        onUploadEncryptedFile={(e) => {
-          const file = e.target.files?.[0];
-          if (!file) return;
-          const reader = new FileReader();
-          reader.onload = async () => {
-            try {
-              const dec = await decryptSqliteBytes(new Uint8Array(reader.result as ArrayBuffer), passphrase);
-              const newDb = await initDatabase(dec);
-              setDb(newDb);
-              await persistEncryptedVault(newDb, passphrase);
-              setStatusMsg(`Decrypted & loaded ${file.name}`);
-            } catch {
-              setStatusMsg('Failed to decrypt uploaded file with current passphrase.');
-            }
-          };
-          reader.readAsArrayBuffer(file);
-        }}
-        onCsvImport={(file, broker) =>
-          importBrokerCsv(file, broker, db, async (count) => {
-            await persistEncryptedVault(db);
-            setStatusMsg(`Upserted ${count} holdings from ${broker}`);
-          })
-        }
-        onAddFD={async (fd) => {
-          db.run(
-            `INSERT INTO holdings (broker, category, symbol, name, currency, principal, interest_rate, compounding_freq, start_date, maturity_date)
-             VALUES (?, 'FIXED_DEPOSIT', ?, ?, ?, ?, ?, ?, ?, ?)
-             ON CONFLICT(broker, symbol) DO UPDATE SET
-               principal = excluded.principal,
-               interest_rate = excluded.interest_rate,
-               maturity_date = excluded.maturity_date`,
-            [
-              fd.broker,
-              fd.symbol,
-              fd.name,
-              fd.currency,
-              fd.principal,
-              fd.interest_rate,
-              fd.compounding_freq,
-              fd.start_date,
-              fd.maturity_date,
-            ]
-          );
-          await persistEncryptedVault(db);
-          setStatusMsg(`Saved Fixed Deposit: ${fd.name}`);
-        }}
-      />
+              setStatusMsg(`Saved Fixed Deposit: ${fd.name}`);
+            }}
+            onDeleteHolding={async (id) => {
+              db.run('DELETE FROM holdings WHERE id = ?', [id]);
+              await persistEncryptedVault(db);
+              setStatusMsg('Asset deleted successfully');
+            }}
+          />
+        )}
+      </main>
 
       {showSecurityModal && <PrivacyArchitectureModal onClose={() => setShowSecurityModal(false)} />}
       {showPassModal && (

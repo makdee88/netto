@@ -27,11 +27,15 @@ const SCHEMA = `
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(broker, symbol)
   );
+
+  CREATE TABLE IF NOT EXISTS networth_snapshots (
+    snapshot_date TEXT PRIMARY KEY,
+    total_value_sek REAL NOT NULL
+  );
 `;
 
 export async function initDatabase(savedBytes?: Uint8Array): Promise<Database> {
   const SQL = await initSqlJs({
-    // Serves the exact matching .wasm binary bundled by Vite from your own Cloudflare domain!
     locateFile: () => sqlWasmUrl,
   });
 
@@ -44,6 +48,26 @@ export async function initDatabase(savedBytes?: Uint8Array): Promise<Database> {
     db.run("INSERT INTO app_config (key, value) VALUES ('base_currency', 'SEK')");
   }
   return db;
+}
+
+export function recordSnapshot(db: Database, totalValueSek: number) {
+  const today = new Date().toISOString().slice(0, 10);
+  db.run(
+    `INSERT INTO networth_snapshots (snapshot_date, total_value_sek) VALUES (?, ?)
+     ON CONFLICT(snapshot_date) DO UPDATE SET total_value_sek = excluded.total_value_sek`,
+    [today, totalValueSek]
+  );
+}
+
+export function getSnapshots(db: Database): Array<{ date: string; value: number }> {
+  const stmt = db.prepare('SELECT snapshot_date, total_value_sek FROM networth_snapshots ORDER BY snapshot_date ASC');
+  const rows: Array<{ date: string; value: number }> = [];
+  while (stmt.step()) {
+    const r = stmt.getAsObject();
+    rows.push({ date: r.snapshot_date, value: r.total_value_sek });
+  }
+  stmt.free();
+  return rows;
 }
 
 export function calculateFDCurrentValue(h: HoldingRow): number {
