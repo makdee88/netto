@@ -20,6 +20,9 @@ export interface HoldingRow {
   updated_at: string;
 }
 
+// Ambient module declaration for sql.js to fix TS7016
+declare module 'sql.js';
+
 declare global {
   interface Window {
     google?: {
