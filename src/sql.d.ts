@@ -21,3 +21,8 @@ declare module 'sql.js' {
     locateFile?: (file: string) => string;
   }): Promise<SqlJsStatic>;
 }
+
+declare module '*.wasm?url' {
+  const src: string;
+  export default src;
+}
