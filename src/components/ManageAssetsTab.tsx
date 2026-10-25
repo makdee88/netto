@@ -8,6 +8,8 @@ import {
   ArrowLeft,
   HelpCircle,
   Plus,
+  UploadCloud,
+  CheckCircle2,
 } from 'lucide-react';
 import { BrokerGuide } from './BrokerGuide';
 import { calculateFDCurrentValue, getProperties, getLiabilities } from '../db/database';
@@ -55,6 +57,10 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
   const [selectedBroker, setSelectedBroker] = useState<BrokerType>('AVANZA');
   const [showGuide, setShowGuide] = useState(true);
 
+  // CSV Import State
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [importStatus, setImportStatus] = useState<string>('');
+
   const properties: PropertyRow[] = getProperties(db);
   const liabilities: LiabilityRow[] = getLiabilities(db);
 
@@ -91,6 +97,15 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
     interest_rate: 4.25,
   });
 
+  const handleExecuteImport = () => {
+    if (!selectedFile) {
+      alert('Please select a CSV file first.');
+      return;
+    }
+    setImportStatus('Processing CSV...');
+    onCsvImport(selectedFile, selectedBroker);
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -104,7 +119,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
       </div>
 
       <div className="grid md:grid-cols-2 gap-6">
-        {/* Guided Broker Import */}
+        {/* Guided Broker Import with Explicit Button */}
         <div className={`border p-6 rounded-2xl space-y-4 shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
           <div className="flex justify-between items-center">
             <div className="flex items-center gap-2.5">
@@ -136,17 +151,47 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
 
           {showGuide && <BrokerGuide broker={selectedBroker} theme={theme} />}
 
-          <div className="pt-2">
-            <label className="block text-xs font-semibold opacity-80 mb-1.5">Upload Exported CSV File:</label>
-            <input
-              type="file"
-              accept=".csv"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) onCsvImport(f, selectedBroker);
-              }}
-              className="w-full text-xs file:mr-3 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-indigo-600 file:text-white hover:file:bg-indigo-500 cursor-pointer border border-dashed border-slate-700 rounded-xl p-3"
-            />
+          {/* File Picker & Explicit Upload Button */}
+          <div className="space-y-3 pt-2">
+            <label className="block text-xs font-semibold opacity-80">Choose Exported CSV File:</label>
+            <div className={`border-2 border-dashed rounded-xl p-4 text-center transition cursor-pointer relative ${isDark ? 'border-slate-700 bg-slate-950/50 hover:border-indigo-500' : 'border-slate-300 bg-slate-50 hover:border-indigo-500'}`}>
+              <input
+                type="file"
+                accept=".csv"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) {
+                    setSelectedFile(f);
+                    setImportStatus('');
+                  }
+                }}
+                className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+              />
+              <div className="flex flex-col items-center justify-center space-y-1">
+                <UploadCloud className="w-6 h-6 text-indigo-400 mb-1" />
+                <span className="text-xs font-semibold">
+                  {selectedFile ? selectedFile.name : 'Click to browse or drop CSV file here'}
+                </span>
+                <span className="text-[10px] opacity-60">Supports semicolon & comma delimiters</span>
+              </div>
+            </div>
+
+            {selectedFile && (
+              <button
+                type="button"
+                onClick={handleExecuteImport}
+                className="w-full bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold py-3 transition text-xs shadow-lg flex items-center justify-center gap-2"
+              >
+                <UploadCloud className="w-4 h-4" /> Upload & Parse {selectedBroker} CSV
+              </button>
+            )}
+
+            {importStatus && (
+              <div className="flex items-center gap-2 text-xs text-emerald-400 bg-emerald-950/40 border border-emerald-500/30 px-3 py-2 rounded-lg">
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
+                <span>{importStatus}</span>
+              </div>
+            )}
           </div>
         </div>
 

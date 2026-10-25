@@ -1,5 +1,5 @@
 import React from 'react';
-import { ExternalLink, CheckCircle2, HelpCircle } from 'lucide-react';
+import { CheckCircle2 } from 'lucide-react';
 import { BrokerType } from '../types';
 
 interface BrokerGuideProps {
@@ -15,43 +15,43 @@ const BROKER_INSTRUCTIONS: Record<
     name: 'Avanza',
     country: 'Sweden 🇸🇪',
     steps: [
-      'Log in to Avanza on your desktop browser.',
-      'Go to **Mina sidor** (My Pages) → **Kontosöversikt** (Account Overview).',
-      'Select your ISK or KF account, then click on the **Innehav** (Holdings) tab.',
-      'Click the **Exportera** (Export) or download button in the top right of the holdings table to download your CSV.',
+      'Log in to your Avanza account on a desktop browser.',
+      'Navigate to **Min ekonomi** (My Economy) → **Transaktioner** (Transactions).',
+      'Select your specific account (ISK, KF, or Aktie- och fondkonto) and set the date range to **Sedan start** (Since start).',
+      'Click the **Exportera transaktioner** (Export transactions) button to download your CSV file.',
     ],
-    tip: 'Netto automatically detects Swedish comma decimals and semicolons in Avanza exports.',
+    tip: 'Netto reads Swedish headers, date formats, and European comma/decimal values automatically.',
   },
   NORDNET: {
     name: 'Nordnet',
     country: 'Nordics 🇸🇪 🇳🇴 🇩🇰 🇫🇮',
     steps: [
-      'Log in to Nordnet and navigate to your portfolio overview.',
-      'Open your specific account and click on **Mina aktier / fonder** (Holdings).',
-      'Look for the export or download icon (usually located above the positions table).',
-      'Save the file as a CSV and upload it directly into Netto.',
+      'Log in to your Nordnet account.',
+      'Go to the **Transaktioner** (Transactions) tab.',
+      'Select your account and choose a full date range covering your trading history.',
+      'Click on **Exportera CSV** (Export CSV) to download your file.',
     ],
-    tip: 'Ensure columns include Quantity and Average Purchase Price (GAV).',
+    tip: 'Nordnet exports include all historical trades, which Netto normalizes into current holdings.',
   },
   ZERODHA: {
     name: 'Zerodha (Console)',
     country: 'India 🇮🇳',
     steps: [
-      'Log in to **Zerodha Console** (console.zerodha.com).',
-      'Navigate to **Portfolio** → **Holdings** in the top menu.',
-      'Click on the **Download** button (down arrow icon) at the top right of your holdings list.',
-      'Save the downloaded CSV file and upload it here.',
+      'Log in to **Zerodha Console** (`console.zerodha.com`).',
+      'Navigate to **Reports** → **Holdings** or **Tradebook**.',
+      'Select your date range if using Tradebook.',
+      'Click the **Download** (down arrow icon) at the top right of the table to save as CSV.',
     ],
-    tip: 'Netto automatically parses NSE/BSE symbols and appends `.NS` for live price fetching.',
+    tip: 'Netto automatically parses NSE/BSE symbols and appends `.NS` for live Yahoo Finance price feeds.',
   },
   UPSTOX: {
     name: 'Upstox',
     country: 'India 🇮🇳',
     steps: [
-      'Log in to the Upstox web portal or app.',
-      'Go to **Portfolio** → **Holdings**.',
-      'Click the download/export report button to download your current holdings CSV.',
-      'Upload the exported file into Netto.',
+      'Log in to the Upstox web platform.',
+      'Go to **Reports** → **Trade History** or **Holdings**.',
+      'Select the widest date range available.',
+      'Click **Download CSV** to export your report.',
     ],
     tip: 'Ensure headers include Instrument/Symbol, Quantity, and Average Price.',
   },
@@ -59,12 +59,12 @@ const BROKER_INSTRUCTIONS: Record<
     name: 'Interactive Brokers',
     country: 'Global 🌍',
     steps: [
-      'Log in to **Client Portal** on the IBKR website.',
-      'Go to **Performance & Reports** → **Statements** → **Flex Queries** (or generate a Custom Portfolio CSV Report).',
-      'Select **Positions** in the section fields and export format as CSV.',
-      'Download and upload the positions report into Netto.',
+      'Log in to the **IBKR Client Portal**.',
+      'Go to **Performance & Reports** → **Statements** → **Activity**.',
+      'Select **CSV** as the report format and click **Download**.',
+      '(Alternatively, use the Classic TWS platform under *Account → Export Portfolio*).',
     ],
-    tip: 'Netto reads multi-currency primary fields and cost basis automatically.',
+    tip: 'Netto reads multi-currency primary fields and cost basis automatically from IBKR statements.',
   },
 };
 

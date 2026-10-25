@@ -9,9 +9,14 @@ export function importBrokerCsv(
   db: Database,
   onComplete: (importedCount: number) => void
 ) {
+  // European brokers (Avanza, Nordnet) use semicolons (;) as delimiters
+  const isEuropean = broker === 'AVANZA' || broker === 'NORDNET';
+
   Papa.parse<Record<string, string>>(file, {
     header: true,
-    skipEmptyLines: true,
+    skipEmptyLines: 'greedy',
+    delimiter: isEuropean ? ';' : '', // Auto-detect or force semicolon for Nordic brokers
+    transformHeader: (header) => header.trim().replace(/^\ufeff/, ''), // Remove BOM if present
     complete: (results) => {
       let count = 0;
       db.run('BEGIN TRANSACTION');
@@ -26,26 +31,31 @@ export function importBrokerCsv(
       `;
 
       for (const row of results.data) {
+        // Skip empty summary rows
+        if (!row || Object.keys(row).length === 0) continue;
+
         if (broker === 'AVANZA') {
           const symbol = row['Kortnamn'] || row['ISIN'] || row['Namn'] || row['Värdepapper'];
           const name = row['Värdepapper'] || row['Namn'] || symbol;
-          const qty = parseNumber(row['Antal'] || row['Volym']);
-          const avg = parseNumber(row['GAV'] || row['Inköpskurs']);
-          const price = parseNumber(row['Kurs'] || row['Senast']) || avg;
+          const qty = parseNumber(row['Antal'] || row['Volym'] || row['Antal aktier']);
+          const avg = parseNumber(row['GAV'] || row['Inköpskurs'] || row['Genomsnittskurs']);
+          const price = parseNumber(row['Kurs'] || row['Senast'] || row['Aktuellt pris']) || avg;
           const curr = row['Valuta'] || 'SEK';
+
           if (symbol && qty > 0) {
-            db.run(upsertSql, ['Avanza', symbol, name, curr, qty, avg, price]);
+            db.run(upsertSql, ['Avanza', symbol.trim(), name.trim(), curr.trim(), qty, avg, price]);
             count++;
           }
         } else if (broker === 'NORDNET') {
-          const symbol = row['Symbol'] || row['Instrument'] || row['Namn'];
-          const name = row['Namn'] || symbol;
-          const qty = parseNumber(row['Antal'] || row['Volume']);
-          const avg = parseNumber(row['GAV'] || row['G.A.V.'] || row['Inköpspris']);
+          const symbol = row['Symbol'] || row['Instrument'] || row['Namn'] || row['Värdepapper'];
+          const name = row['Namn'] || row['Instrument'] || symbol;
+          const qty = parseNumber(row['Antal'] || row['Volume'] || row['Innehav']);
+          const avg = parseNumber(row['GAV'] || row['G.A.V.'] || row['Inköpspris'] || row['Anskaffningsvärde']);
           const price = parseNumber(row['Senaste'] || row['Aktuell kurs'] || row['Market Price']) || avg;
           const curr = row['Valuta'] || 'SEK';
+
           if (symbol && qty > 0) {
-            db.run(upsertSql, ['Nordnet', symbol, name, curr, qty, avg, price]);
+            db.run(upsertSql, ['Nordnet', symbol.trim(), name.trim(), curr.trim(), qty, avg, price]);
             count++;
           }
         } else if (broker === 'ZERODHA') {
@@ -53,8 +63,11 @@ export function importBrokerCsv(
           const qty = parseNumber(row['Qty.'] || row['Quantity']);
           const avg = parseNumber(row['Avg. cost'] || row['Average Price']);
           const price = parseNumber(row['LTP'] || row['Close Price']) || avg;
+
           if (symbol && qty > 0) {
-            db.run(upsertSql, ['Zerodha', `${symbol}.NS`, symbol, 'INR', qty, avg, price]);
+            const cleanSym = symbol.trim();
+            const formattedSym = cleanSym.endsWith('.NS') || cleanSym.endsWith('.BO') ? cleanSym : `${cleanSym}.NS`;
+            db.run(upsertSql, ['Zerodha', formattedSym, cleanSym, 'INR', qty, avg, price]);
             count++;
           }
         } else if (broker === 'UPSTOX') {
@@ -62,8 +75,11 @@ export function importBrokerCsv(
           const qty = parseNumber(row['Quantity'] || row['Qty']);
           const avg = parseNumber(row['Average Price'] || row['Avg. price']);
           const price = parseNumber(row['LTP'] || row['Last Traded Price']) || avg;
+
           if (symbol && qty > 0) {
-            db.run(upsertSql, ['Upstox', `${symbol}.NS`, symbol, 'INR', qty, avg, price]);
+            const cleanSym = symbol.trim();
+            const formattedSym = cleanSym.endsWith('.NS') || cleanSym.endsWith('.BO') ? cleanSym : `${cleanSym}.NS`;
+            db.run(upsertSql, ['Upstox', formattedSym, cleanSym, 'INR', qty, avg, price]);
             count++;
           }
         } else if (broker === 'IBKR') {
@@ -73,8 +89,9 @@ export function importBrokerCsv(
           const avg = parseNumber(row['CostBasisPrice'] || row['Cost Basis Price']);
           const price = parseNumber(row['MarkPrice'] || row['Mark Price']) || avg;
           const curr = row['CurrencyPrimary'] || row['Currency'] || 'USD';
+
           if (symbol && qty > 0) {
-            db.run(upsertSql, ['Interactive Brokers', symbol, name, curr, qty, avg, price]);
+            db.run(upsertSql, ['Interactive Brokers', symbol.trim(), name.trim(), curr.trim(), qty, avg, price]);
             count++;
           }
         }
@@ -82,5 +99,9 @@ export function importBrokerCsv(
       db.run('COMMIT');
       onComplete(count);
     },
+    error: (err) => {
+      console.error('CSV Parse Error:', err);
+      alert('Failed to parse CSV file. Please check format.');
+    }
   });
 }

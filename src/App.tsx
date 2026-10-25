@@ -29,6 +29,9 @@ import {
   Moon,
   LayoutDashboard,
   PlusCircle,
+  CheckCircle2,
+  FileSpreadsheet,
+  ArrowRight,
 } from 'lucide-react';
 
 const STORAGE_KEY = 'netto_encrypted_vault_v2';
@@ -50,6 +53,9 @@ export default function App() {
   const [hasExistingVault, setHasExistingVault] = useState<boolean>(false);
   const [showSecurityModal, setShowSecurityModal] = useState<boolean>(false);
   const [showPassModal, setShowPassModal] = useState<boolean>(false);
+
+  // CSV Import Summary Popup State
+  const [csvSummary, setCsvSummary] = useState<{ broker: string; count: number } | null>(null);
 
   const [holdings, setHoldings] = useState<HoldingRow[]>([]);
   const [baseCurrency, setBaseCurrency] = useState<CurrencyCode>('SEK');
@@ -76,7 +82,6 @@ export default function App() {
     stmt.free();
     setHoldings(rows);
 
-    // Calculate Assets vs Liabilities and record historical snapshot
     const totalAssets = rows.reduce((sum, h) => {
       const nativeVal = h.category === 'FIXED_DEPOSIT' ? h.principal : h.quantity * h.market_price;
       const inSek = nativeVal * (fxRates[h.currency] || 1);
@@ -367,6 +372,7 @@ export default function App() {
               importBrokerCsv(file, broker, db, async (count) => {
                 await persistEncryptedVault(db);
                 setStatusMsg(`Upserted ${count} holdings from ${broker}`);
+                setCsvSummary({ broker, count });
               })
             }
             onAddFD={async (fd) => {
@@ -426,6 +432,54 @@ export default function App() {
           />
         )}
       </main>
+
+      {/* CSV Import Success Popup Modal */}
+      {csvSummary && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className={`max-w-md w-full border rounded-3xl p-6 space-y-5 shadow-2xl ${isDark ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'}`}>
+            <div className="flex items-center gap-3">
+              <div className="p-3 rounded-2xl bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                <CheckCircle2 className="w-7 h-7" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold">CSV Import Successful!</h3>
+                <p className="text-xs opacity-70">Successfully parsed and updated your vault.</p>
+              </div>
+            </div>
+
+            <div className={`p-4 rounded-2xl border space-y-2 text-xs ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+              <div className="flex justify-between">
+                <span className="opacity-70">Broker / Platform:</span>
+                <span className="font-bold text-indigo-400">{csvSummary.broker}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="opacity-70">Holdings Processed / Upserted:</span>
+                <span className="font-bold text-emerald-400">{csvSummary.count} assets</span>
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setCsvSummary(null)}
+                className={`flex-1 py-3 rounded-xl font-semibold text-xs border transition ${isDark ? 'bg-slate-800 border-slate-700 hover:bg-slate-700' : 'bg-slate-100 border-slate-300 hover:bg-slate-200'}`}
+              >
+                Import Another File
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setCsvSummary(null);
+                  setSubTab('OVERVIEW');
+                }}
+                className="flex-1 py-3 rounded-xl font-bold text-xs bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg flex items-center justify-center gap-1.5 transition"
+              >
+                View Dashboard <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showSecurityModal && <PrivacyArchitectureModal onClose={() => setShowSecurityModal(false)} />}
       {showPassModal && (
