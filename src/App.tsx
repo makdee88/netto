@@ -19,9 +19,6 @@ import { ChangePassphraseModal } from './components/ChangePassphraseModal';
 import {
   ShieldCheck,
   CloudUpload,
-  CloudDownload,
-  Download,
-  Upload,
   RefreshCw,
   Info,
   KeyRound,
@@ -35,11 +32,6 @@ import {
 
 const STORAGE_KEY = 'netto_encrypted_vault_v2';
 const THEME_KEY = 'netto_color_theme';
-
-const [step, setStep] = useState<AppStep>(() => {
-    return localStorage.getItem(STORAGE_KEY) ? 'AUTH' : 'LANDING';
-  });
-
 const GOOGLE_CLIENT_ID =
   (import.meta as any).env?.VITE_GOOGLE_CLIENT_ID || 'YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com';
 
@@ -47,7 +39,9 @@ type AppStep = 'LANDING' | 'AUTH' | 'DASHBOARD';
 type DashboardSubTab = 'OVERVIEW' | 'MANAGE';
 
 export default function App() {
-  const [step, setStep] = useState<AppStep>('LANDING');
+  const [step, setStep] = useState<AppStep>(() => {
+    return (sessionStorage.getItem('netto_active_step') as AppStep) || (localStorage.getItem(STORAGE_KEY) ? 'AUTH' : 'LANDING');
+  });
   const [subTab, setSubTab] = useState<DashboardSubTab>(() => {
     return (sessionStorage.getItem('netto_sub_tab') as DashboardSubTab) || 'OVERVIEW';
   });
@@ -60,7 +54,6 @@ export default function App() {
   const [showSecurityModal, setShowSecurityModal] = useState<boolean>(false);
   const [showPassModal, setShowPassModal] = useState<boolean>(false);
 
-  // CSV Import Summary Popup State
   const [csvSummary, setCsvSummary] = useState<{ broker: string; count: number } | null>(null);
 
   const [holdings, setHoldings] = useState<HoldingRow[]>([]);
@@ -70,10 +63,16 @@ export default function App() {
   const [googleToken, setGoogleToken] = useState<string | null>(null);
 
   useEffect(() => {
-    setHasExistingVault(Boolean(localStorage.getItem(STORAGE_KEY)));
+    const vaultExists = Boolean(localStorage.getItem(STORAGE_KEY));
+    setHasExistingVault(vaultExists);
     const savedTheme = localStorage.getItem(THEME_KEY) as 'dark' | 'light' | null;
     if (savedTheme) setTheme(savedTheme);
   }, []);
+
+  const handleStepChange = (newStep: AppStep) => {
+    setStep(newStep);
+    sessionStorage.setItem('netto_active_step', newStep);
+  };
 
   const handleTabChange = (tab: DashboardSubTab) => {
     setSubTab(tab);
@@ -94,7 +93,7 @@ export default function App() {
     setHoldings(rows);
 
     const totalAssets = rows.reduce((sum, h) => {
-      const nativeVal = h.category === 'FIXED_DEPOSIT' ? h.principal : h.quantity * h.market_price;
+      const nativeVal = h.category === 'FIXED_DEPOSIT' ? h.principal : h.quantity * (h.market_price > 0 ? h.market_price : h.avg_price);
       const inSek = nativeVal * (fxRates[h.currency] || 1);
       return sum + inSek / (fxRates[baseCurrency] || 1);
     }, 0);
@@ -159,7 +158,7 @@ export default function App() {
       await persistEncryptedVault(database, passInput);
       setHasExistingVault(true);
       setStatusMsg(`Restored & Unlocked ${restoreName || 'Vault'}`);
-      setStep('DASHBOARD');
+      handleStepChange('DASHBOARD');
       return;
     }
 
@@ -171,7 +170,7 @@ export default function App() {
       setDb(database);
       refreshHoldings(database);
       setStatusMsg('Netto Vault Decrypted & Unlocked (AES-256-GCM)');
-      setStep('DASHBOARD');
+      handleStepChange('DASHBOARD');
     } else {
       if (passInput !== passConfirm) throw new Error('Passphrases do not match.');
       const database = await initDatabase();
@@ -180,7 +179,7 @@ export default function App() {
       await persistEncryptedVault(database, passInput);
       setHasExistingVault(true);
       setStatusMsg('New Encrypted Netto Vault Created!');
-      setStep('DASHBOARD');
+      handleStepChange('DASHBOARD');
     }
   };
 
@@ -209,11 +208,11 @@ export default function App() {
         onToggleTheme={toggleTheme}
         onLaunchCreateOrUnlock={() => {
           setAuthMode('CREATE_OR_UNLOCK');
-          setStep('AUTH');
+          handleStepChange('AUTH');
         }}
         onLaunchRestore={() => {
           setAuthMode('RESTORE_RETURNING');
-          setStep('AUTH');
+          handleStepChange('AUTH');
         }}
       />
     );
@@ -225,7 +224,7 @@ export default function App() {
         authMode={authMode}
         setAuthMode={setAuthMode}
         hasExistingVault={hasExistingVault}
-        onBackToLanding={() => setStep('LANDING')}
+        onBackToLanding={() => handleStepChange('LANDING')}
         onUnlockOrCreate={handleUnlockOrCreate}
         onFetchGoogleDriveVault={(onLoaded) =>
           withGoogleAuth(async (token) => {
@@ -237,6 +236,7 @@ export default function App() {
           if (confirm('Clear cached vault from this browser? Ensure you have your backup!')) {
             localStorage.removeItem(STORAGE_KEY);
             setHasExistingVault(false);
+            handleStepChange('LANDING');
           }
         }}
       />
@@ -255,7 +255,7 @@ export default function App() {
           <div>
             <div className="flex items-center gap-2">
               <h1
-                onClick={() => setStep('LANDING')}
+                onClick={() => handleStepChange('LANDING')}
                 className="text-xl font-bold tracking-tight cursor-pointer hover:text-indigo-400 transition"
                 title="View Landing Page"
               >
@@ -444,7 +444,6 @@ export default function App() {
         )}
       </main>
 
-      {/* CSV Import Success Popup Modal */}
       {csvSummary && (
         <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className={`max-w-md w-full border rounded-3xl p-6 space-y-5 shadow-2xl ${isDark ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'}`}>
