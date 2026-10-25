@@ -5,7 +5,7 @@ import {
   Upload,
   ArrowRight,
   Globe2,
-  Cpu,
+  LockKeyhole,
   Cloud,
   Sparkles,
   Sun,
@@ -31,27 +31,34 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
   return (
     <div className={`min-h-screen ${isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
-      <nav className={`max-w-7xl mx-auto px-6 py-5 flex justify-between items-center border-b ${isDark ? 'border-slate-900' : 'border-slate-200'}`}>
-        <div className="flex items-center gap-2.5">
-          <div className="p-2 rounded-xl bg-indigo-500/15 border border-indigo-500/30 text-indigo-400">
+      {/* Clean Navbar */}
+      <nav className={`max-w-7xl mx-auto px-6 py-4 flex justify-between items-center border-b ${isDark ? 'border-slate-900' : 'border-slate-200'}`}>
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 rounded-2xl bg-indigo-500/15 border border-indigo-500/30 text-indigo-400">
             <ShieldCheck className="w-6 h-6" />
           </div>
-          <span className="text-xl font-extrabold tracking-tight">netto</span>
-          <span className={`text-[11px] px-2.5 py-0.5 rounded-full border ${isDark ? 'bg-slate-900 border-slate-800 text-slate-400' : 'bg-slate-200 border-slate-300 text-slate-600'}`}>
-            Private Wealth Tracker
-          </span>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-xl font-extrabold tracking-tight">netto</span>
+              <span className="text-[10px] uppercase tracking-widest font-bold px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 hidden sm:inline-block">
+                Secure
+              </span>
+            </div>
+            <p className="text-[11px] opacity-60 font-medium">Private Wealth Tracker</p>
+          </div>
         </div>
+
         <div className="flex items-center gap-3">
           <button
             onClick={onToggleTheme}
-            className={`p-2 rounded-xl border transition ${isDark ? 'bg-slate-900 border-slate-800 text-yellow-400' : 'bg-white border-slate-300 text-slate-700'}`}
+            className={`p-2.5 rounded-xl border transition ${isDark ? 'bg-slate-900 border-slate-800 text-yellow-400 hover:bg-slate-800' : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-100'}`}
             title="Toggle Theme"
           >
             {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
           </button>
           <button
             onClick={onLaunchRestore}
-            className="text-xs font-semibold px-3 py-2 opacity-80 hover:opacity-100"
+            className="text-xs font-semibold px-3 py-2 opacity-80 hover:opacity-100 hidden sm:block"
           >
             Returning User?
           </button>
@@ -64,6 +71,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         </div>
       </nav>
 
+      {/* Hero Section */}
       <section className="max-w-5xl mx-auto px-6 pt-16 pb-12 text-center space-y-6">
         <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-xs font-medium">
           <Sparkles className="w-3.5 h-3.5" /> Track All Global Investments & Savings in One Place
@@ -76,10 +84,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         </h1>
         <p className={`max-w-2xl mx-auto text-base md:text-lg leading-relaxed ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
           Seamlessly consolidate holdings from any broker worldwide and fixed-rate savings accounts across countries.
-          Secured with bank-grade encryption stored exclusively in <b>your private Google Drive</b>.
+          Secured with bank-grade encryption stored exclusively in <b>your private Google Drive or locally on your computer</b>.
         </p>
       </section>
 
+      {/* Explainer Infographic */}
       <section className="max-w-6xl mx-auto px-6 py-8">
         <div className={`border rounded-3xl p-8 md:p-10 space-y-8 shadow-2xl ${isDark ? 'bg-slate-900/70 border-slate-800' : 'bg-white border-slate-200'}`}>
           <div className="text-center space-y-2">
@@ -112,7 +121,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400">
                   2. LOCK
                 </span>
-                <Lock className="w-5 h-5 text-emerald-400" />
+                <LockKeyhole className="w-5 h-5 text-emerald-400" />
               </div>
               <h3 className="font-bold text-sm">Your Password, Your Key</h3>
               <p className={`text-xs leading-relaxed ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
@@ -138,6 +147,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         </div>
       </section>
 
+      {/* Call-to-action */}
       <section className="max-w-4xl mx-auto px-6 py-12 text-center">
         <div className="bg-gradient-to-br from-indigo-950 via-slate-900 to-slate-900 border border-indigo-500/40 rounded-3xl p-8 md:p-12 space-y-6 shadow-2xl text-white">
           <h2 className="text-2xl md:text-3xl font-extrabold">Ready to Take Control of Your Net Worth?</h2>
