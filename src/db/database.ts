@@ -476,3 +476,10 @@ export function getAllTransactions(db: Database): TransactionRow[] {
   stmt.free();
   return rows;
 }
+
+export function clearBrokerData(db: Database, brokerName: string) {
+  db.run('BEGIN TRANSACTION');
+  db.run('DELETE FROM transactions WHERE broker = ?', [brokerName]);
+  db.run(`DELETE FROM holdings WHERE broker = ? AND category = 'EQUITY'`, [brokerName]);
+  db.run('COMMIT');
+}

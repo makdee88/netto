@@ -49,6 +49,8 @@ export function importBrokerCsv(
 
       const fileOccurrenceCounter = new Map<string, number>();
 
+      db.run('BEGIN TRANSACTION');
+
       const insertTxSql = `
         INSERT OR IGNORE INTO transactions
           (tx_hash, broker, account, tx_date, tx_type, symbol, name, quantity, price, amount, currency)
@@ -68,8 +70,6 @@ export function importBrokerCsv(
       `;
 
       let snapshotHoldingsCount = 0;
-
-      db.run('BEGIN TRANSACTION');
 
       for (const row of rows) {
         if (!row || Object.keys(row).length === 0) continue;
@@ -124,7 +124,6 @@ export function importBrokerCsv(
 
           const normalizedType: 'BUY' | 'SELL' | 'SPLIT' = isBuy ? 'BUY' : isSell ? 'SELL' : 'SPLIT';
           const name = rawName || isin;
-          // Use ISIN as the primary immutable symbol/key so all buys/sells group together
           let symbol = isin || name;
 
           if ((broker === 'ZERODHA' || broker === 'UPSTOX') && !symbol.endsWith('.NS') && !symbol.endsWith('.BO')) {
