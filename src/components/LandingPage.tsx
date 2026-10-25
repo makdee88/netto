@@ -31,20 +31,15 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
   return (
     <div className={`min-h-screen ${isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
-      {/* Clean Navbar */}
+      {/* Navbar with Larger Netto Brand & Clean Subtitle */}
       <nav className={`max-w-7xl mx-auto px-6 py-4 flex justify-between items-center border-b ${isDark ? 'border-slate-900' : 'border-slate-200'}`}>
         <div className="flex items-center gap-3">
-          <div className="p-2.5 rounded-2xl bg-indigo-500/15 border border-indigo-500/30 text-indigo-400">
-            <ShieldCheck className="w-6 h-6" />
+          <div className="p-3 rounded-2xl bg-indigo-500/15 border border-indigo-500/30 text-indigo-400">
+            <ShieldCheck className="w-7 h-7" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
-              <span className="text-xl font-extrabold tracking-tight">netto</span>
-              <span className="text-[10px] uppercase tracking-widest font-bold px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 hidden sm:inline-block">
-                Secure
-              </span>
-            </div>
-            <p className="text-[11px] opacity-60 font-medium">Private Wealth Tracker</p>
+            <span className="text-2xl font-black tracking-tight text-white">netto</span>
+            <p className="text-xs opacity-70 font-medium">Private Wealth Tracker</p>
           </div>
         </div>
 
@@ -84,7 +79,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         </h1>
         <p className={`max-w-2xl mx-auto text-base md:text-lg leading-relaxed ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
           Seamlessly consolidate holdings from any broker worldwide and fixed-rate savings accounts across countries.
-          Secured with bank-grade encryption stored exclusively in <b>your private Google Drive or locally on your computer</b>.
+          Secured with bank-grade encryption stored exclusively in <b>your private Google Drive or locally on your Computer</b>.
         </p>
       </section>
 
@@ -137,10 +132,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 </span>
                 <Cloud className="w-5 h-5 text-amber-400" />
               </div>
-              <h3 className="font-bold text-sm">Direct to Your Google Drive</h3>
+              <h3 className="font-bold text-sm">Drive or Local Storage</h3>
               <p className={`text-xs leading-relaxed ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
-                With one click, your encrypted vault backs up automatically to <b>your own personal Google Drive</b>.
-                Netto cannot access your other Google files.
+                Back up your encrypted vault automatically to <b>your private Google Drive or locally on your Computer</b>.
+                Netto cannot access your other files.
               </p>
             </div>
           </div>
