@@ -22,6 +22,31 @@ export interface HoldingRow {
   updated_at: string;
 }
 
+export interface TransactionRow {
+  id: number;
+  tx_hash: string;
+  broker: string;
+  account: string;
+  tx_date: string;
+  tx_type: 'BUY' | 'SELL' | 'SPLIT';
+  symbol: string;
+  name: string;
+  quantity: number;
+  price: number;
+  amount: number;
+  currency: CurrencyCode;
+  created_at: string;
+}
+
+export interface CsvImportResult {
+  broker: string;
+  mode: 'TRANSACTIONS' | 'SNAPSHOT';
+  totalRowsRead: number;
+  newTransactionsAdded: number;
+  duplicateTransactionsSkipped: number;
+  holdingsUpdated: number;
+}
+
 export interface PropertyRow {
   id: number;
   name: string;

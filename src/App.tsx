@@ -9,7 +9,7 @@ import {
 } from './crypto/vaultCrypto';
 import { importBrokerCsv } from './parsers/csvImporter';
 import { syncToGoogleDrive, loadFromGoogleDrive } from './sync/googleDrive';
-import { BrokerType, CurrencyCode, HoldingRow, PropertyType, LiabilityType } from './types';
+import { BrokerType, CsvImportResult, CurrencyCode, HoldingRow } from './types';
 import { LandingPage } from './components/LandingPage';
 import { VaultAuthScreen, AuthMode } from './components/VaultAuthScreen';
 import { OverviewTab } from './components/OverviewTab';
@@ -54,7 +54,7 @@ export default function App() {
   const [showSecurityModal, setShowSecurityModal] = useState<boolean>(false);
   const [showPassModal, setShowPassModal] = useState<boolean>(false);
 
-  const [csvSummary, setCsvSummary] = useState<{ broker: string; count: number } | null>(null);
+  const [csvSummary, setCsvSummary] = useState<CsvImportResult | null>(null);
 
   const [holdings, setHoldings] = useState<HoldingRow[]>([]);
   const [baseCurrency, setBaseCurrency] = useState<CurrencyCode>('SEK');
@@ -261,7 +261,7 @@ export default function App() {
               >
                 netto
               </h1>
-              <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full font-medium">
+              <span className="text-[10px] bg-emerald-500/20 text-emerald-500 px-2 py-0.5 rounded-full font-medium">
                 AES-256 Unlocked
               </span>
             </div>
@@ -330,10 +330,12 @@ export default function App() {
                 if (data.quotes) {
                   db.run('BEGIN TRANSACTION');
                   for (const [sym, price] of Object.entries(data.quotes)) {
-                    db.run('UPDATE holdings SET market_price = ?, updated_at = CURRENT_TIMESTAMP WHERE symbol = ?', [
-                      Number(price),
-                      sym,
-                    ]);
+                    if (Number(price) > 0) {
+                      db.run('UPDATE holdings SET market_price = ?, updated_at = CURRENT_TIMESTAMP WHERE symbol = ?', [
+                        Number(price),
+                        sym,
+                      ]);
+                    }
                   }
                   db.run('COMMIT');
                   await persistEncryptedVault(db);
@@ -380,10 +382,12 @@ export default function App() {
             theme={theme}
             onBackToOverview={() => handleTabChange('OVERVIEW')}
             onCsvImport={(file, broker) =>
-              importBrokerCsv(file, broker, db, async (count) => {
+              importBrokerCsv(file, broker, db, async (summary) => {
                 await persistEncryptedVault(db);
-                setStatusMsg(`Upserted ${count} holdings from ${broker}`);
-                setCsvSummary({ broker, count });
+                setStatusMsg(
+                  `Imported ${summary.newTransactionsAdded} new txns (${summary.duplicateTransactionsSkipped} duplicates skipped) • ${summary.holdingsUpdated} holdings`
+                );
+                setCsvSummary(summary);
               })
             }
             onAddFD={async (fd) => {
@@ -426,9 +430,14 @@ export default function App() {
               setStatusMsg(`Saved Liability: ${l.name}`);
             }}
             onDeleteHolding={async (id) => {
+              const res = db.exec('SELECT broker, symbol FROM holdings WHERE id = ?', [id]);
+              if (res[0]?.values?.[0]) {
+                const [b, s] = res[0].values[0];
+                db.run('DELETE FROM transactions WHERE broker = ? AND symbol = ?', [b, s]);
+              }
               db.run('DELETE FROM holdings WHERE id = ?', [id]);
               await persistEncryptedVault(db);
-              setStatusMsg('Asset deleted successfully');
+              setStatusMsg('Asset and its transaction history deleted');
             }}
             onDeleteProperty={async (id) => {
               db.run('DELETE FROM properties WHERE id = ?', [id]);
@@ -448,23 +457,43 @@ export default function App() {
         <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className={`max-w-md w-full border rounded-3xl p-6 space-y-5 shadow-2xl ${isDark ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'}`}>
             <div className="flex items-center gap-3">
-              <div className="p-3 rounded-2xl bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+              <div className="p-3 rounded-2xl bg-emerald-500/15 text-emerald-500 border border-emerald-500/30">
                 <CheckCircle2 className="w-7 h-7" />
               </div>
               <div>
                 <h3 className="text-lg font-bold">CSV Import Successful!</h3>
-                <p className="text-xs opacity-70">Successfully parsed and updated your vault.</p>
+                <p className="text-xs opacity-70">
+                  {csvSummary.mode === 'TRANSACTIONS'
+                    ? 'Transactions saved to SQLite ledger & net holdings recalculated.'
+                    : 'Holdings snapshot updated in your vault.'}
+                </p>
               </div>
             </div>
 
-            <div className={`p-4 rounded-2xl border space-y-2 text-xs ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+            <div className={`p-4 rounded-2xl border space-y-2.5 text-xs ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
               <div className="flex justify-between">
                 <span className="opacity-70">Broker / Platform:</span>
-                <span className="font-bold text-indigo-400">{csvSummary.broker}</span>
+                <span className="font-bold text-indigo-500">{csvSummary.broker}</span>
               </div>
               <div className="flex justify-between">
-                <span className="opacity-70">Net Holdings Calculated:</span>
-                <span className="font-bold text-emerald-400">{csvSummary.count} assets</span>
+                <span className="opacity-70">CSV Rows Scanned:</span>
+                <span className="font-semibold">{csvSummary.totalRowsRead} rows</span>
+              </div>
+              {csvSummary.mode === 'TRANSACTIONS' && (
+                <>
+                  <div className="flex justify-between">
+                    <span className="opacity-70">New Transactions Added:</span>
+                    <span className="font-bold text-emerald-500">+{csvSummary.newTransactionsAdded}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="opacity-70">Duplicates Safely Skipped:</span>
+                    <span className="font-semibold opacity-80">{csvSummary.duplicateTransactionsSkipped}</span>
+                  </div>
+                </>
+              )}
+              <div className="flex justify-between pt-2 border-t border-slate-800/40">
+                <span className="opacity-70 font-medium">Active Net Holdings:</span>
+                <span className="font-bold text-indigo-500">{csvSummary.holdingsUpdated} assets</span>
               </div>
             </div>
 

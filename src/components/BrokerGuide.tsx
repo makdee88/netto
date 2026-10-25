@@ -15,45 +15,41 @@ const BROKER_INSTRUCTIONS: Record<
     name: 'Avanza',
     country: 'Sweden 🇸🇪',
     steps: [
-      'Log in to your Avanza account on a desktop browser.',
-      'Navigate to **Min ekonomi** (My Economy) → **Transaktioner** (Transactions).',
-      'Select your specific account (ISK, KF, or Aktie- och fondkonto) and set the date range to **Sedan start** (Since start).',
-      'Click the **Exportera transaktioner** (Export transactions) button to download your CSV file.',
+      'Log in to Avanza on a desktop browser and go to **Min ekonomi** → **Transaktioner**.',
+      '**First time:** Set the date filter to **Sedan start** (Since start). **Future updates:** Just export the latest month or quarter!',
+      'Click **Exportera transaktioner** (CSV) and upload the file below.',
     ],
-    tip: 'Netto reads Swedish headers, date formats, and European comma/decimal values automatically.',
+    tip: 'Netto saves every transaction in your encrypted SQLite ledger and automatically skips duplicates if date ranges overlap.',
   },
   NORDNET: {
     name: 'Nordnet',
     country: 'Nordics 🇸🇪 🇳🇴 🇩🇰 🇫🇮',
     steps: [
-      'Log in to your Nordnet account.',
-      'Go to the **Transaktioner** (Transactions) tab.',
-      'Select your account and choose a full date range covering your trading history.',
-      'Click on **Exportera CSV** (Export CSV) to download your file.',
+      'Log in to Nordnet and navigate to **Transaktioner** (Transactions).',
+      '**First time:** Choose your full date range. **Future updates:** Export only recent weeks/months.',
+      'Click **Exportera CSV** and upload it here.',
     ],
-    tip: 'Nordnet exports include all historical trades, which Netto normalizes into current holdings.',
+    tip: 'Overlapping date ranges are safely deduplicated automatically.',
   },
   ZERODHA: {
     name: 'Zerodha (Console)',
     country: 'India 🇮🇳',
     steps: [
       'Log in to **Zerodha Console** (`console.zerodha.com`).',
-      'Navigate to **Reports** → **Holdings** or **Tradebook**.',
-      'Select your date range if using Tradebook.',
-      'Click the **Download** (down arrow icon) at the top right of the table to save as CSV.',
+      'Go to **Portfolio** → **Holdings** (or **Reports** → **Tradebook**).',
+      'Click the **Download CSV** icon at the top right of the table.',
     ],
-    tip: 'Netto automatically parses NSE/BSE symbols and appends `.NS` for live Yahoo Finance price feeds.',
+    tip: 'Netto automatically maps NSE/BSE tickers and fetches live INR prices.',
   },
   UPSTOX: {
     name: 'Upstox',
     country: 'India 🇮🇳',
     steps: [
-      'Log in to the Upstox web platform.',
-      'Go to **Reports** → **Trade History** or **Holdings**.',
-      'Select the widest date range available.',
-      'Click **Download CSV** to export your report.',
+      'Log in to the Upstox web portal.',
+      'Navigate to **Portfolio** → **Holdings** or **Reports** → **Trade History**.',
+      'Click **Download CSV** and upload the exported report.',
     ],
-    tip: 'Ensure headers include Instrument/Symbol, Quantity, and Average Price.',
+    tip: 'Both position snapshots and trade history files are supported.',
   },
   IBKR: {
     name: 'Interactive Brokers',
@@ -61,10 +57,9 @@ const BROKER_INSTRUCTIONS: Record<
     steps: [
       'Log in to the **IBKR Client Portal**.',
       'Go to **Performance & Reports** → **Statements** → **Activity**.',
-      'Select **CSV** as the report format and click **Download**.',
-      '(Alternatively, use the Classic TWS platform under *Account → Export Portfolio*).',
+      'Export the **Positions** or **Trades** section in **CSV** format.',
     ],
-    tip: 'Netto reads multi-currency primary fields and cost basis automatically from IBKR statements.',
+    tip: 'Multi-currency positions (USD, EUR, SEK) are consolidated automatically.',
   },
 };
 
@@ -76,11 +71,11 @@ export const BrokerGuide: React.FC<BrokerGuideProps> = ({ broker, theme }) => {
     <div className={`p-5 rounded-2xl border space-y-3 ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
       <div className="flex justify-between items-center">
         <div className="flex items-center gap-2">
-          <span className="font-bold text-sm text-indigo-400">{info.name}</span>
+          <span className="font-bold text-sm text-indigo-500">{info.name}</span>
           <span className="text-xs opacity-60">({info.country})</span>
         </div>
-        <span className="text-[10px] bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 px-2 py-0.5 rounded-full font-semibold">
-          Guided Export
+        <span className="text-[10px] bg-indigo-500/10 text-indigo-500 border border-indigo-500/20 px-2 py-0.5 rounded-full font-semibold">
+          Incremental Sync Ready
         </span>
       </div>
 
@@ -90,14 +85,17 @@ export const BrokerGuide: React.FC<BrokerGuideProps> = ({ broker, theme }) => {
             <span className="w-4 h-4 rounded-full bg-indigo-600 text-white font-bold flex items-center justify-center shrink-0 mt-0.5 text-[10px]">
               {idx + 1}
             </span>
-            <p className="opacity-90 leading-relaxed" dangerouslySetInnerHTML={{ __html: step.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>') }} />
+            <p
+              className="opacity-90 leading-relaxed"
+              dangerouslySetInnerHTML={{ __html: step.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>') }}
+            />
           </div>
         ))}
       </div>
 
       <div className={`p-3 rounded-xl border text-[11px] flex items-center gap-2 ${isDark ? 'bg-slate-900 border-slate-800 text-indigo-300' : 'bg-indigo-50 border-indigo-100 text-indigo-900'}`}>
-        <CheckCircle2 className="w-4 h-4 shrink-0 text-indigo-400" />
-        <span><b>Pro Tip:</b> {info.tip}</span>
+        <CheckCircle2 className="w-4 h-4 shrink-0 text-indigo-500" />
+        <span><b>Smart Ledger:</b> {info.tip}</span>
       </div>
     </div>
   );

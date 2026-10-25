@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   TrendingUp,
   PieChart,
@@ -11,7 +11,12 @@ import {
   Calendar,
   Layers,
 } from 'lucide-react';
-import { calculateFDCurrentValue, getSnapshots, getProperties, getLiabilities } from '../db/database';
+import {
+  calculateFDCurrentValue,
+  getProperties,
+  getLiabilities,
+  getHistoricalPortfolioTimeline,
+} from '../db/database';
 import { CurrencyCode, HoldingRow, PropertyRow, LiabilityRow } from '../types';
 import type { Database } from 'sql.js';
 
@@ -25,6 +30,8 @@ interface OverviewTabProps {
   onOpenPrivacyModal: () => void;
 }
 
+type TimeframeRange = '1Y' | '3Y' | '5Y' | 'ALL';
+
 export const OverviewTab: React.FC<OverviewTabProps> = ({
   db,
   holdings,
@@ -34,7 +41,9 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
   onGoToManage,
 }) => {
   const isDark = theme === 'dark';
-  const snapshots = getSnapshots(db);
+  const [range, setRange] = useState<TimeframeRange>('ALL');
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+
   const properties: PropertyRow[] = getProperties(db);
   const liabilities: LiabilityRow[] = getLiabilities(db);
 
@@ -43,7 +52,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
     return inSek / (fxRates[baseCurrency] || 1);
   };
 
-  // Calculate true current market value for holdings (falls back to buy price if market price is 0)
+  // Calculate true current market value for holdings
   const holdingsWithValues = holdings.map((h) => {
     const isFD = h.category === 'FIXED_DEPOSIT';
     const effectiveMarketPrice = h.market_price > 0 ? h.market_price : h.avg_price;
@@ -69,6 +78,63 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
   const netWorth = totalAssets - totalLiabilities;
   const debtToAssetRatio = totalAssets > 0 ? (totalLiabilities / totalAssets) * 100 : 0;
 
+  // Reconstruct full historical timeline from transactions, FDs, and properties
+  const fullTimeline = getHistoricalPortfolioTimeline(db, holdings, properties, fxRates, baseCurrency);
+
+  const filteredTimeline = (() => {
+    if (range === 'ALL') return fullTimeline;
+    const monthsToKeep = range === '1Y' ? 12 : range === '3Y' ? 36 : 60;
+    return fullTimeline.slice(-monthsToKeep);
+  })();
+
+  // SVG Chart Geometry Helper
+  const chartWidth = 600;
+  const chartHeight = 200;
+  const padLeft = 10;
+  const padRight = 10;
+  const padTop = 18;
+  const padBottom = 26;
+  const usableW = chartWidth - padLeft - padRight;
+  const usableH = chartHeight - padTop - padBottom;
+
+  const maxChartVal = Math.max(
+    ...filteredTimeline.map((p) => Math.max(p.portfolioValue, p.investedCost)),
+    1
+  );
+
+  const getPointCoords = (idx: number, val: number) => {
+    const count = filteredTimeline.length;
+    const x =
+      count <= 1
+        ? padLeft + usableW / 2
+        : padLeft + (idx / (count - 1)) * usableW;
+    const y = padTop + usableH - (val / maxChartVal) * usableH;
+    return { x, y };
+  };
+
+  const valueCoords = filteredTimeline.map((pt, i) => getPointCoords(i, pt.portfolioValue));
+  const costCoords = filteredTimeline.map((pt, i) => getPointCoords(i, pt.investedCost));
+
+  const valueLinePath =
+    valueCoords.length > 0
+      ? valueCoords.map((c, i) => `${i === 0 ? 'M' : 'L'} ${c.x.toFixed(1)} ${c.y.toFixed(1)}`).join(' ')
+      : '';
+
+  const valueAreaPath =
+    valueCoords.length > 1
+      ? `${valueLinePath} L ${valueCoords[valueCoords.length - 1].x.toFixed(1)} ${(padTop + usableH).toFixed(1)} L ${valueCoords[0].x.toFixed(1)} ${(padTop + usableH).toFixed(1)} Z`
+      : '';
+
+  const costLinePath =
+    costCoords.length > 0
+      ? costCoords.map((c, i) => `${i === 0 ? 'M' : 'L'} ${c.x.toFixed(1)} ${c.y.toFixed(1)}`).join(' ')
+      : '';
+
+  const activePoint =
+    hoverIdx !== null && filteredTimeline[hoverIdx]
+      ? filteredTimeline[hoverIdx]
+      : filteredTimeline[filteredTimeline.length - 1] || null;
+
   // Asset Class Allocation
   const assetBreakdown: Record<string, number> = {
     'Equities & Mutual Funds': holdingsWithValues
@@ -80,10 +146,8 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
     'Real Estate': totalRealEstate,
   };
 
-  // Stock / Fund Wise Breakdown (Sorted by largest current value)
   const sortedHoldings = [...holdingsWithValues].sort((a, b) => b.baseVal - a.baseVal);
 
-  // Currency Exposure
   const currencyBreakdown: Record<string, number> = {};
   holdingsWithValues.forEach((h) => {
     currencyBreakdown[h.currency] = (currencyBreakdown[h.currency] || 0) + h.baseVal;
@@ -129,66 +193,226 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         </div>
       </div>
 
-      {/* Analytics Row: Trajectory Graph + Asset Allocation */}
-      <div className="grid md:grid-cols-2 gap-6">
-        {/* Net Worth & Asset Trajectory Graph */}
-        <div className={`border p-6 rounded-2xl space-y-4 shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <TrendingUp className="w-5 h-5 text-indigo-500" />
-              <h2 className="font-bold text-base">Net Worth & Asset Trajectory Over Time</h2>
+      {/* Analytics Row: Historical Portfolio Growth Trajectory + Asset Allocation */}
+      <div className="grid md:grid-cols-3 gap-6">
+        {/* Portfolio Growth Over Time (Reconstructed from Transaction History) */}
+        <div className={`md:col-span-2 border p-6 rounded-2xl space-y-4 shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="flex items-center gap-2">
+                <TrendingUp className="w-5 h-5 text-indigo-500" />
+                <h2 className="font-bold text-base">Portfolio Growth Over Time</h2>
+              </div>
+              <p className="text-[11px] opacity-60">
+                Reconstructed from your full transaction history, FDs, and real estate
+              </p>
             </div>
-            <button onClick={onGoToManage} className="text-xs text-indigo-500 hover:underline font-semibold flex items-center gap-1">
-              <PlusCircle className="w-3.5 h-3.5" /> Update Data
-            </button>
+
+            {/* Timeframe Selector */}
+            <div className={`flex gap-1 p-1 rounded-xl text-[11px] font-bold ${isDark ? 'bg-slate-950' : 'bg-slate-100'}`}>
+              {(['1Y', '3Y', '5Y', 'ALL'] as TimeframeRange[]).map((tf) => (
+                <button
+                  key={tf}
+                  onClick={() => setRange(tf)}
+                  className={`px-2.5 py-1 rounded-lg transition ${
+                    range === tf
+                      ? 'bg-indigo-600 text-white shadow'
+                      : 'opacity-60 hover:opacity-100'
+                  }`}
+                >
+                  {tf}
+                </button>
+              ))}
+            </div>
           </div>
 
-          <div className="space-y-3">
-            <div className={`h-48 flex items-end gap-3 pt-6 px-2 border-b relative ${isDark ? 'border-slate-800' : 'border-slate-200'}`}>
-              {snapshots.length === 0 ? (
-                <div className="absolute inset-0 flex flex-col items-center justify-center text-center opacity-60 text-xs space-y-1">
-                  <p>Historical snapshots record automatically as you open or update your portfolio.</p>
-                  <span className="text-[11px] text-indigo-500 font-bold">
-                    Current Net Worth: {Math.round(netWorth).toLocaleString()} {baseCurrency}
-                  </span>
-                </div>
-              ) : (
-                snapshots.map((s, idx) => {
-                  const maxVal = Math.max(...snapshots.map((x) => x.assets), 1);
-                  const assetH = Math.max(12, (s.assets / maxVal) * 100);
-                  const netH = Math.max(10, (s.netWorth / maxVal) * 100);
-                  return (
-                    <div key={idx} className="flex-1 flex flex-col items-center gap-1 group relative h-full justify-end">
-                      <div className="w-full flex items-end gap-1 h-full">
-                        <div
-                          style={{ height: `${assetH}%` }}
-                          className="w-1/2 bg-emerald-500/80 hover:bg-emerald-400 rounded-t transition-all"
-                          title={`Total Assets: ${Math.round(s.assets)}`}
-                        />
-                        <div
-                          style={{ height: `${netH}%` }}
-                          className="w-1/2 bg-indigo-500 hover:bg-indigo-400 rounded-t transition-all"
-                          title={`Net Worth: ${Math.round(s.netWorth)}`}
-                        />
-                      </div>
-                      <span className="text-[9px] opacity-70 truncate pt-1">{s.date.slice(5)}</span>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-            <div className="flex justify-between items-center text-xs opacity-80 pt-1">
-              <div className="flex items-center gap-4">
-                <span className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block" /> Total Assets
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-full bg-indigo-500 inline-block" /> Net Worth
+          {/* Live Hover / Latest Readout Banner */}
+          {activePoint && (
+            <div className={`flex flex-wrap items-center justify-between gap-4 px-4 py-2.5 rounded-xl border text-xs ${isDark ? 'bg-slate-950/70 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+              <div>
+                <span className="opacity-60 text-[10px] uppercase font-bold block">Period</span>
+                <span className="font-bold text-indigo-500">{activePoint.label} ({activePoint.date})</span>
+              </div>
+              <div>
+                <span className="opacity-60 text-[10px] uppercase font-bold block">Market Value</span>
+                <span className="font-extrabold">
+                  {Math.round(activePoint.portfolioValue).toLocaleString()} {baseCurrency}
                 </span>
               </div>
-              <span className="text-[10px] opacity-60">Updated Daily</span>
+              <div>
+                <span className="opacity-60 text-[10px] uppercase font-bold block">Invested Capital</span>
+                <span className="font-semibold text-emerald-500">
+                  {Math.round(activePoint.investedCost).toLocaleString()} {baseCurrency}
+                </span>
+              </div>
+              <div>
+                <span className="opacity-60 text-[10px] uppercase font-bold block">Total Return</span>
+                {(() => {
+                  const diff = activePoint.portfolioValue - activePoint.investedCost;
+                  const pct = activePoint.investedCost > 0 ? (diff / activePoint.investedCost) * 100 : 0;
+                  return (
+                    <span className={`font-bold ${diff >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                      {diff >= 0 ? '+' : ''}
+                      {Math.round(diff).toLocaleString()} ({pct.toFixed(1)}%)
+                    </span>
+                  );
+                })()}
+              </div>
             </div>
-          </div>
+          )}
+
+          {/* Interactive SVG Area + Line Chart */}
+          {filteredTimeline.length === 0 ? (
+            <div className="h-48 flex flex-col items-center justify-center text-center opacity-60 text-xs space-y-2">
+              <p>Import a broker transaction CSV or add an asset to generate your historical growth curve.</p>
+              <button
+                onClick={onGoToManage}
+                className="text-indigo-500 font-semibold hover:underline flex items-center gap-1"
+              >
+                <PlusCircle className="w-3.5 h-3.5" /> Import Transactions Now
+              </button>
+            </div>
+          ) : (
+            <div className="relative">
+              <svg
+                viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+                className="w-full h-52 overflow-visible"
+                onMouseLeave={() => setHoverIdx(null)}
+              >
+                <defs>
+                  <linearGradient id="nettoValueGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#6366f1" stopOpacity="0.4" />
+                    <stop offset="100%" stopColor="#6366f1" stopOpacity="0.0" />
+                  </linearGradient>
+                </defs>
+
+                {/* Horizontal Grid Lines */}
+                {[0.25, 0.5, 0.75, 1].map((ratio, idx) => {
+                  const y = padTop + usableH - ratio * usableH;
+                  return (
+                    <line
+                      key={idx}
+                      x1={padLeft}
+                      y1={y}
+                      x2={chartWidth - padRight}
+                      y2={y}
+                      stroke={isDark ? '#1e293b' : '#e2e8f0'}
+                      strokeDasharray="3 3"
+                      strokeWidth="1"
+                    />
+                  );
+                })}
+
+                {/* Area Fill under Market Value */}
+                {valueAreaPath && <path d={valueAreaPath} fill="url(#nettoValueGrad)" />}
+
+                {/* Dashed Invested Capital (Cost Basis) Line */}
+                {costLinePath && (
+                  <path
+                    d={costLinePath}
+                    fill="none"
+                    stroke="#10b981"
+                    strokeWidth="2"
+                    strokeDasharray="4 4"
+                  />
+                )}
+
+                {/* Solid Portfolio Market Value Line */}
+                {valueLinePath && (
+                  <path
+                    d={valueLinePath}
+                    fill="none"
+                    stroke="#6366f1"
+                    strokeWidth="2.75"
+                    strokeLinecap="round"
+                  />
+                )}
+
+                {/* Hover Indicator Line & Dots */}
+                {hoverIdx !== null && valueCoords[hoverIdx] && costCoords[hoverIdx] && (
+                  <>
+                    <line
+                      x1={valueCoords[hoverIdx].x}
+                      y1={padTop}
+                      x2={valueCoords[hoverIdx].x}
+                      y2={padTop + usableH}
+                      stroke="#6366f1"
+                      strokeWidth="1"
+                      strokeDasharray="2 2"
+                    />
+                    <circle
+                      cx={costCoords[hoverIdx].x}
+                      cy={costCoords[hoverIdx].y}
+                      r="4"
+                      fill="#10b981"
+                    />
+                    <circle
+                      cx={valueCoords[hoverIdx].x}
+                      cy={valueCoords[hoverIdx].y}
+                      r="5"
+                      fill="#6366f1"
+                      stroke="#ffffff"
+                      strokeWidth="1.5"
+                    />
+                  </>
+                )}
+
+                {/* X-Axis Labels (Start, Middle, End) */}
+                {filteredTimeline.map((pt, i) => {
+                  const count = filteredTimeline.length;
+                  const showLabel =
+                    i === 0 ||
+                    i === count - 1 ||
+                    (count > 4 && i === Math.floor(count / 2)) ||
+                    (count > 8 && (i === Math.floor(count / 4) || i === Math.floor((count * 3) / 4)));
+                  if (!showLabel) return null;
+                  const { x } = valueCoords[i];
+                  return (
+                    <text
+                      key={pt.date}
+                      x={x}
+                      y={chartHeight - 6}
+                      textAnchor={i === 0 ? 'start' : i === count - 1 ? 'end' : 'middle'}
+                      className="text-[10px] fill-current opacity-60"
+                    >
+                      {pt.label}
+                    </text>
+                  );
+                })}
+
+                {/* Invisible Hover Columns for Smooth Scrubbing */}
+                {filteredTimeline.map((_, i) => {
+                  const count = filteredTimeline.length;
+                  const colW = usableW / Math.max(count, 1);
+                  const x = valueCoords[i].x - colW / 2;
+                  return (
+                    <rect
+                      key={i}
+                      x={Math.max(0, x)}
+                      y={0}
+                      width={colW}
+                      height={chartHeight}
+                      fill="transparent"
+                      className="cursor-pointer"
+                      onMouseEnter={() => setHoverIdx(i)}
+                    />
+                  );
+                })}
+              </svg>
+
+              <div className="flex justify-between items-center text-xs opacity-80 pt-1">
+                <div className="flex items-center gap-4">
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-3 h-1 rounded bg-indigo-500 inline-block" /> Portfolio Market Value
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-3 h-0.5 border-b-2 border-dashed border-emerald-500 inline-block" /> Invested Capital (Cost Basis)
+                  </span>
+                </div>
+                <span className="text-[10px] opacity-60">{filteredTimeline.length} monthly points</span>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Asset Class Allocation */}
@@ -198,14 +422,14 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
             <h2 className="font-bold text-base">Gross Asset Allocation</h2>
           </div>
 
-          <div className="space-y-3 pt-2">
+          <div className="space-y-4 pt-2">
             {totalAssets === 0 ? (
               <p className="text-xs opacity-60 text-center py-12">No assets recorded yet.</p>
             ) : (
               Object.entries(assetBreakdown).map(([category, val]) => {
                 const pct = totalAssets > 0 ? (val / totalAssets) * 100 : 0;
                 return (
-                  <div key={category} className="space-y-1 text-xs">
+                  <div key={category} className="space-y-1.5 text-xs">
                     <div className="flex justify-between font-medium">
                       <span>{category}</span>
                       <span>
@@ -340,7 +564,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         </div>
       </div>
 
-      {/* Holdings Table with Prominent Fund Names, Live Market Values & Light-Mode Support */}
+      {/* Holdings Table */}
       <div className={`border rounded-2xl overflow-hidden shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
         <div className={`p-4 border-b flex justify-between items-center ${isDark ? 'border-slate-800' : 'border-slate-200'}`}>
           <h3 className="font-bold text-sm">Consolidated Portfolio Holdings (Live Valuation)</h3>
