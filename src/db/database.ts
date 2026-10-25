@@ -1,4 +1,5 @@
-import initSqlJs, { Database } from 'sql.js';
+import initSqlJs from 'sql.js';
+import type { Database } from 'sql.js';
 import { HoldingRow } from '../types';
 
 const SCHEMA = `
@@ -29,7 +30,7 @@ const SCHEMA = `
 
 export async function initDatabase(savedBytes?: Uint8Array): Promise<Database> {
   const SQL = await initSqlJs({
-    locateFile: (file) => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.12.0/${file}`,
+    locateFile: (file: string) => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.12.0/${file}`,
   });
 
   const db = savedBytes ? new SQL.Database(savedBytes) : new SQL.Database();

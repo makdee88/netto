@@ -1,4 +1,4 @@
-const MAGIC_HEADER = new TextEncoder().encode('NETTOV02'); // 8 bytes header
+const MAGIC_HEADER = new TextEncoder().encode('NETTOV02');
 
 async function deriveKey(passphrase: string, salt: Uint8Array): Promise<CryptoKey> {
   const enc = new TextEncoder();
@@ -13,7 +13,7 @@ async function deriveKey(passphrase: string, salt: Uint8Array): Promise<CryptoKe
   return crypto.subtle.deriveKey(
     {
       name: 'PBKDF2',
-      salt,
+      salt: salt as any,
       iterations: 100000,
       hash: 'SHA-256',
     },
@@ -29,10 +29,13 @@ export async function encryptSqliteBytes(rawSqlite: Uint8Array, passphrase: stri
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const key = await deriveKey(passphrase, salt);
 
-  const encryptedBuf = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, rawSqlite);
+  const encryptedBuf = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv: iv as any },
+    key,
+    rawSqlite as any
+  );
   const ciphertext = new Uint8Array(encryptedBuf);
 
-  // Format: [8B MAGIC][16B SALT][12B IV][CIPHERTEXT]
   const packed = new Uint8Array(8 + 16 + 12 + ciphertext.byteLength);
   packed.set(MAGIC_HEADER, 0);
   packed.set(salt, 8);
@@ -52,7 +55,11 @@ export async function decryptSqliteBytes(packed: Uint8Array, passphrase: string)
 
   const key = await deriveKey(passphrase, salt);
   try {
-    const decryptedBuf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext);
+    const decryptedBuf = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv: iv as any },
+      key,
+      ciphertext as any
+    );
     return new Uint8Array(decryptedBuf);
   } catch {
     throw new Error('Incorrect Master Passphrase! Decryption failed.');

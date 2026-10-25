@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Database } from 'sql.js';
+import type { Database } from 'sql.js';
 import {
   ShieldCheck,
   Lock,
