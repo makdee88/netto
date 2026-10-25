@@ -1,5 +1,5 @@
 import Papa from 'papaparse';
-import { Database } from 'sql.js';
+import type { Database } from 'sql.js';
 import { BrokerType } from '../types';
 import { parseNumber } from '../db/database';
 
@@ -37,6 +37,17 @@ export function importBrokerCsv(
             db.run(upsertSql, ['Avanza', symbol, name, curr, qty, avg, price]);
             count++;
           }
+        } else if (broker === 'NORDNET') {
+          const symbol = row['Symbol'] || row['Instrument'] || row['Namn'];
+          const name = row['Namn'] || symbol;
+          const qty = parseNumber(row['Antal'] || row['Volume']);
+          const avg = parseNumber(row['GAV'] || row['G.A.V.'] || row['Inköpspris']);
+          const price = parseNumber(row['Senaste'] || row['Aktuell kurs'] || row['Market Price']) || avg;
+          const curr = row['Valuta'] || 'SEK';
+          if (symbol && qty > 0) {
+            db.run(upsertSql, ['Nordnet', symbol, name, curr, qty, avg, price]);
+            count++;
+          }
         } else if (broker === 'ZERODHA') {
           const symbol = row['Instrument'] || row['Symbol'];
           const qty = parseNumber(row['Qty.'] || row['Quantity']);
@@ -44,6 +55,15 @@ export function importBrokerCsv(
           const price = parseNumber(row['LTP'] || row['Close Price']) || avg;
           if (symbol && qty > 0) {
             db.run(upsertSql, ['Zerodha', `${symbol}.NS`, symbol, 'INR', qty, avg, price]);
+            count++;
+          }
+        } else if (broker === 'UPSTOX') {
+          const symbol = row['Symbol'] || row['Instrument'];
+          const qty = parseNumber(row['Quantity'] || row['Qty']);
+          const avg = parseNumber(row['Average Price'] || row['Avg. price']);
+          const price = parseNumber(row['LTP'] || row['Last Traded Price']) || avg;
+          if (symbol && qty > 0) {
+            db.run(upsertSql, ['Upstox', `${symbol}.NS`, symbol, 'INR', qty, avg, price]);
             count++;
           }
         } else if (broker === 'IBKR') {

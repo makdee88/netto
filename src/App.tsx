@@ -24,6 +24,7 @@ const DEFAULT_FX_TO_SEK: Record<string, number> = {
 };
 
 const STORAGE_KEY = 'netto_encrypted_vault_v2';
+const THEME_KEY = 'netto_color_theme';
 const GOOGLE_CLIENT_ID =
   (import.meta as any).env?.VITE_GOOGLE_CLIENT_ID || 'YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com';
 
@@ -32,6 +33,7 @@ type AppStep = 'LANDING' | 'AUTH' | 'DASHBOARD';
 export default function App() {
   const [step, setStep] = useState<AppStep>('LANDING');
   const [authMode, setAuthMode] = useState<AuthMode>('CREATE_OR_UNLOCK');
+  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
 
   const [db, setDb] = useState<Database | null>(null);
   const [passphrase, setPassphrase] = useState<string>('');
@@ -47,7 +49,15 @@ export default function App() {
 
   useEffect(() => {
     setHasExistingVault(Boolean(localStorage.getItem(STORAGE_KEY)));
+    const savedTheme = localStorage.getItem(THEME_KEY) as 'dark' | 'light' | null;
+    if (savedTheme) setTheme(savedTheme);
   }, []);
+
+  const toggleTheme = () => {
+    const next = theme === 'dark' ? 'light' : 'dark';
+    setTheme(next);
+    localStorage.setItem(THEME_KEY, next);
+  };
 
   const refreshHoldings = (database: Database) => {
     const stmt = database.prepare('SELECT * FROM holdings ORDER BY broker, name');
@@ -148,6 +158,8 @@ export default function App() {
     return (
       <LandingPage
         hasExistingVault={hasExistingVault}
+        theme={theme}
+        onToggleTheme={toggleTheme}
         onLaunchCreateOrUnlock={() => {
           setAuthMode('CREATE_OR_UNLOCK');
           setStep('AUTH');
@@ -185,13 +197,15 @@ export default function App() {
   }
 
   return (
-    <>
+    <div className={`min-h-screen ${theme === 'dark' ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
       <PortfolioDashboard
         holdings={holdings}
         baseCurrency={baseCurrency}
         setBaseCurrency={setBaseCurrency}
         fxRates={fxRates}
         statusMsg={statusMsg}
+        theme={theme}
+        onToggleTheme={toggleTheme}
         onGoLanding={() => setStep('LANDING')}
         onOpenPrivacyModal={() => setShowSecurityModal(true)}
         onOpenPassModal={() => setShowPassModal(true)}
@@ -310,6 +324,6 @@ export default function App() {
           onUpdatePassphrase={handleUpdatePassphrase}
         />
       )}
-    </>
+    </div>
   );
 }

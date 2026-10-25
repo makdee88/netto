@@ -1,4 +1,4 @@
-export type BrokerType = 'AVANZA' | 'ZERODHA' | 'IBKR';
+export type BrokerType = 'AVANZA' | 'NORDNET' | 'ZERODHA' | 'UPSTOX' | 'IBKR';
 export type AssetCategory = 'EQUITY' | 'FIXED_DEPOSIT';
 export type CurrencyCode = 'SEK' | 'INR' | 'USD' | 'EUR';
 
@@ -20,6 +20,29 @@ export interface HoldingRow {
   updated_at: string;
 }
 
+declare module 'sql.js' {
+  export interface Statement {
+    step(): boolean;
+    getAsObject(): Record<string, any>;
+    free(): boolean;
+  }
+  export interface Database {
+    run(sql: string, params?: any[]): Database;
+    exec(sql: string, params?: any[]): Array<{ columns: string[]; values: any[][] }>;
+    prepare(sql: string, params?: any[]): Statement;
+    export(): Uint8Array;
+    close(): void;
+  }
+  export interface SqlJsStatic {
+    Database: new (data?: ArrayLike<number> | Buffer | null) => Database;
+  }
+  export default function initSqlJs(config?: { locateFile?: (file: string) => string }): Promise<SqlJsStatic>;
+}
+
+declare module '*.wasm?url' {
+  const src: string;
+  export default src;
+}
 
 declare global {
   interface Window {
