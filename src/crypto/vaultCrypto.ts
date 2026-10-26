@@ -30,7 +30,7 @@ export async function encryptSqliteBytes(
 
   const keyMaterial = await window.crypto.subtle.importKey(
     'raw',
-    passwordBytes,
+    passwordBytes.buffer as ArrayBuffer,
     { name: 'PBKDF2' },
     false,
     ['deriveKey']
@@ -42,7 +42,7 @@ export async function encryptSqliteBytes(
   const key = await window.crypto.subtle.deriveKey(
     {
       name: 'PBKDF2',
-      salt,
+      salt: salt.buffer as ArrayBuffer,
       iterations: PBKDF2_ITERATIONS,
       hash: 'SHA-256',
     },
@@ -53,9 +53,9 @@ export async function encryptSqliteBytes(
   );
 
   const ciphertext = await window.crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv },
+    { name: 'AES-GCM', iv: iv.buffer as ArrayBuffer },
     key,
-    plainBytes
+    plainBytes.buffer as ArrayBuffer
   );
 
   const cipherBytes = new Uint8Array(ciphertext);
@@ -84,7 +84,7 @@ export async function decryptSqliteBytes(
 
   const keyMaterial = await window.crypto.subtle.importKey(
     'raw',
-    passwordBytes,
+    passwordBytes.buffer as ArrayBuffer,
     { name: 'PBKDF2' },
     false,
     ['deriveKey']
@@ -93,7 +93,7 @@ export async function decryptSqliteBytes(
   const key = await window.crypto.subtle.deriveKey(
     {
       name: 'PBKDF2',
-      salt,
+      salt: salt.buffer as ArrayBuffer,
       iterations: PBKDF2_ITERATIONS,
       hash: 'SHA-256',
     },
@@ -105,9 +105,9 @@ export async function decryptSqliteBytes(
 
   try {
     const plainBuffer = await window.crypto.subtle.decrypt(
-      { name: 'AES-GCM', iv },
+      { name: 'AES-GCM', iv: iv.buffer as ArrayBuffer },
       key,
-      cipherBytes
+      cipherBytes.buffer as ArrayBuffer
     );
     return new Uint8Array(plainBuffer);
   } catch {
