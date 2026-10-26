@@ -33,7 +33,8 @@ import {
 } from 'lucide-react';
 
 const THEME_KEY = 'netto_color_theme';
-const GOOGLE_CLIENT_ID = (import.meta as any).env?.VITE_GOOGLE_CLIENT_ID || 'YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com';
+const GOOGLE_CLIENT_ID =
+  (import.meta as any).env?.VITE_GOOGLE_CLIENT_ID || 'YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com';
 
 type AppStep = 'LANDING' | 'AUTH' | 'DASHBOARD';
 type DashboardSubTab = 'OVERVIEW' | 'MANAGE';
@@ -75,22 +76,35 @@ export default function App() {
     const savedTheme = localStorage.getItem(THEME_KEY) as 'dark' | 'light' | null;
     if (savedTheme) setTheme(savedTheme);
 
+    // Initial session check
     supabase.auth.getSession().then(({ data: { session: currentSession } }) => {
       setSession(currentSession);
-      if (currentSession && window.location.hash && (window.location.hash.includes('access_token') || window.location.hash.includes('type='))) {
-        window.history.replaceState({}, document.title, window.location.pathname);
+      if (currentSession) {
+        // If coming back from OAuth redirect, jump straight to AUTH
+        if (window.location.hash && (window.location.hash.includes('access_token') || window.location.hash.includes('type='))) {
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
         setStep('AUTH');
         sessionStorage.setItem('netto_active_step', 'AUTH');
       }
       setLoadingSession(false);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event: AuthChangeEvent, currentSession: Session | null) => {
+    // Listen for Auth changes (e.g. user completes Google / GitHub popup or redirect)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event: AuthChangeEvent, currentSession: Session | null) => {
       setSession(currentSession);
+
+      if (event === 'SIGNED_IN' && currentSession) {
+        setStep('AUTH');
+        sessionStorage.setItem('netto_active_step', 'AUTH');
+      }
+
       if (!currentSession) {
         setDb(null);
         setPassphrase('');
         setHoldings([]);
+        setStep('LANDING');
+        sessionStorage.setItem('netto_active_step', 'LANDING');
       }
     });
 
@@ -218,12 +232,17 @@ export default function App() {
   const isDark = theme === 'dark';
 
   if (loadingSession) {
-    return <div className="min-h-screen bg-slate-950 text-slate-400 flex items-center justify-center text-sm">Initializing Netto...</div>;
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-400 flex items-center justify-center text-sm">
+        Initializing Netto...
+      </div>
+    );
   }
 
   const floatingBar = session && (
     <FloatingVaultBar
       email={session.user.email || ''}
+      fullName={session.user.user_metadata?.full_name || session.user.user_metadata?.name}
       isDark={isDark}
       activeVaultName={activeVaultName}
       vaultList={vaultList}
@@ -241,6 +260,7 @@ export default function App() {
     />
   );
 
+  // STEP 1: Landing Page
   if (step === 'LANDING') {
     return (
       <>
@@ -251,21 +271,23 @@ export default function App() {
           onToggleTheme={toggleTheme}
           onLaunchCreateOrUnlock={() => {
             setAuthMode('CREATE_OR_UNLOCK');
-            handleStepChange('AUTH');
+            handleStepChange(session ? 'AUTH' : 'AUTH');
           }}
           onLaunchRestore={() => {
             setAuthMode('RESTORE_RETURNING');
-            handleStepChange('AUTH');
+            handleStepChange(session ? 'AUTH' : 'AUTH');
           }}
         />
       </>
     );
   }
 
+  // STEP 2A: Mandatory Supabase Login Gate
   if (!session) {
     return <AuthGateScreen isDark={isDark} onBackToLanding={() => handleStepChange('LANDING')} />;
   }
 
+  // STEP 2B: Local Vault Passphrase Decryption / Creation
   if (step === 'AUTH' || !db) {
     return (
       <>
@@ -274,6 +296,8 @@ export default function App() {
           authMode={authMode}
           setAuthMode={setAuthMode}
           hasExistingVault={hasExistingVault}
+          userEmail={session.user.email}
+          activeVaultName={activeVaultName}
           onBackToLanding={() => handleStepChange('LANDING')}
           onUnlockOrCreate={handleUnlockOrCreate}
           onFetchGoogleDriveVault={(onLoaded: (bytes: Uint8Array) => void) =>
@@ -294,6 +318,7 @@ export default function App() {
     );
   }
 
+  // STEP 3: Dashboard
   return (
     <div className={`min-h-screen ${isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
       {floatingBar}

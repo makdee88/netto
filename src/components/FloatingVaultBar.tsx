@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { Database as DbIcon, FolderPlus, LogOut } from 'lucide-react';
+import { Database as DbIcon, FolderPlus, LogOut, UserCheck } from 'lucide-react';
 
 interface FloatingVaultBarProps {
   email: string;
+  fullName?: string;
   isDark: boolean;
   activeVaultName: string;
   vaultList: string[];
@@ -13,6 +14,7 @@ interface FloatingVaultBarProps {
 
 export const FloatingVaultBar: React.FC<FloatingVaultBarProps> = ({
   email,
+  fullName,
   isDark,
   activeVaultName,
   vaultList,
@@ -22,6 +24,8 @@ export const FloatingVaultBar: React.FC<FloatingVaultBarProps> = ({
 }) => {
   const [isCreating, setIsCreating] = useState(false);
   const [nameInput, setNameInput] = useState('');
+
+  const displayName = fullName || email.split('@')[0];
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -33,20 +37,31 @@ export const FloatingVaultBar: React.FC<FloatingVaultBarProps> = ({
 
   return (
     <div
-      className={`fixed bottom-4 right-4 z-50 flex flex-wrap items-center gap-2.5 px-4 py-2 rounded-2xl border shadow-2xl backdrop-blur-md text-xs transition ${
+      className={`fixed bottom-4 right-4 z-50 flex flex-wrap items-center gap-3 px-4 py-2.5 rounded-2xl border shadow-2xl backdrop-blur-md text-xs transition ${
         isDark
-          ? 'bg-slate-900/95 border-slate-700/80 text-slate-200'
-          : 'bg-white/95 border-slate-300 text-slate-800'
+          ? 'bg-slate-900/95 border-emerald-500/30 text-slate-200'
+          : 'bg-white/95 border-emerald-500/30 text-slate-800'
       }`}
     >
+      {/* Welcome & Identity Badge */}
       <div className="flex items-center gap-2 pr-2 border-r border-slate-700/40">
-        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-        <span className="font-semibold text-indigo-400">{email}</span>
+        <div className="p-1 rounded-full bg-emerald-500/20 text-emerald-400">
+          <UserCheck className="w-3.5 h-3.5" />
+        </div>
+        <div className="flex flex-col">
+          <span className="text-[10px] uppercase font-semibold tracking-wider text-emerald-400 leading-none">
+            Welcome back
+          </span>
+          <span className="font-bold text-slate-100 text-xs">
+            {displayName} <span className="font-normal opacity-60 text-[10px]">({email})</span>
+          </span>
+        </div>
       </div>
 
+      {/* Multi-Database Selector */}
       <div className="flex items-center gap-1.5">
-        <DbIcon className="w-3.5 h-3.5 text-emerald-400" />
-        <span className="opacity-70">DB:</span>
+        <DbIcon className="w-3.5 h-3.5 text-indigo-400" />
+        <span className="opacity-70 font-medium">Vault:</span>
         {!isCreating ? (
           <>
             <select
@@ -76,16 +91,23 @@ export const FloatingVaultBar: React.FC<FloatingVaultBarProps> = ({
               type="text"
               value={nameInput}
               onChange={(e) => setNameInput(e.target.value)}
-              placeholder="e.g. Tax, Family..."
+              placeholder="Vault name..."
               autoFocus
               className={`px-2 py-0.5 rounded border text-xs w-28 ${
                 isDark ? 'bg-slate-950 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
               }`}
             />
-            <button type="submit" className="px-2 py-0.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded font-semibold">
+            <button
+              type="submit"
+              className="px-2 py-0.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded font-semibold"
+            >
               Add
             </button>
-            <button type="button" onClick={() => setIsCreating(false)} className="px-1.5 py-0.5 opacity-70 hover:opacity-100">
+            <button
+              type="button"
+              onClick={() => setIsCreating(false)}
+              className="px-1.5 py-0.5 opacity-70 hover:opacity-100"
+            >
               ✕
             </button>
           </form>
