@@ -21,9 +21,11 @@ export function base64ToUint8(base64: string): Uint8Array {
   return bytes;
 }
 
-// Utility to ensure a clean, isolated ArrayBuffer with 0 byteOffset
-function toCleanArrayBuffer(view: Uint8Array): ArrayBuffer {
-  return view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength) as ArrayBuffer;
+// Ensure an isolated, clean ArrayBuffer copy (critical for sql.js WASM export buffers)
+function toCleanBuffer(source: Uint8Array): ArrayBuffer {
+  const clean = new Uint8Array(source.length);
+  clean.set(source);
+  return clean.buffer;
 }
 
 export async function encryptSqliteBytes(
@@ -35,7 +37,7 @@ export async function encryptSqliteBytes(
 
   const keyMaterial = await window.crypto.subtle.importKey(
     'raw',
-    toCleanArrayBuffer(passwordBytes),
+    toCleanBuffer(passwordBytes),
     { name: 'PBKDF2' },
     false,
     ['deriveKey']
@@ -47,7 +49,7 @@ export async function encryptSqliteBytes(
   const key = await window.crypto.subtle.deriveKey(
     {
       name: 'PBKDF2',
-      salt: toCleanArrayBuffer(salt),
+      salt: toCleanBuffer(salt),
       iterations: PBKDF2_ITERATIONS,
       hash: 'SHA-256',
     },
@@ -58,9 +60,9 @@ export async function encryptSqliteBytes(
   );
 
   const ciphertext = await window.crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv: toCleanArrayBuffer(iv) },
+    { name: 'AES-GCM', iv: toCleanBuffer(iv) },
     key,
-    toCleanArrayBuffer(plainBytes)
+    toCleanBuffer(plainBytes)
   );
 
   const cipherBytes = new Uint8Array(ciphertext);
@@ -80,17 +82,21 @@ export async function decryptSqliteBytes(
     throw new Error('Corrupted or invalid encrypted payload');
   }
 
-  // Extract each segment with explicit offsets
-  const salt = encryptedBytes.subarray(0, SALT_BYTES);
-  const iv = encryptedBytes.subarray(SALT_BYTES, SALT_BYTES + IV_BYTES);
-  const cipherBytes = encryptedBytes.subarray(SALT_BYTES + IV_BYTES);
+  // Extract explicit isolated slices
+  const salt = new Uint8Array(encryptedBytes.buffer, encryptedBytes.byteOffset, SALT_BYTES);
+  const iv = new Uint8Array(encryptedBytes.buffer, encryptedBytes.byteOffset + SALT_BYTES, IV_BYTES);
+  const cipherBytes = new Uint8Array(
+    encryptedBytes.buffer,
+    encryptedBytes.byteOffset + SALT_BYTES + IV_BYTES,
+    encryptedBytes.byteLength - (SALT_BYTES + IV_BYTES)
+  );
 
   const enc = new TextEncoder();
   const passwordBytes = enc.encode(passphrase);
 
   const keyMaterial = await window.crypto.subtle.importKey(
     'raw',
-    toCleanArrayBuffer(passwordBytes),
+    toCleanBuffer(passwordBytes),
     { name: 'PBKDF2' },
     false,
     ['deriveKey']
@@ -99,7 +105,7 @@ export async function decryptSqliteBytes(
   const key = await window.crypto.subtle.deriveKey(
     {
       name: 'PBKDF2',
-      salt: toCleanArrayBuffer(salt),
+      salt: toCleanBuffer(salt),
       iterations: PBKDF2_ITERATIONS,
       hash: 'SHA-256',
     },
@@ -111,19 +117,19 @@ export async function decryptSqliteBytes(
 
   try {
     const plainBuffer = await window.crypto.subtle.decrypt(
-      { name: 'AES-GCM', iv: toCleanArrayBuffer(iv) },
+      { name: 'AES-GCM', iv: toCleanBuffer(iv) },
       key,
-      toCleanArrayBuffer(cipherBytes)
+      toCleanBuffer(cipherBytes)
     );
     return new Uint8Array(plainBuffer);
   } catch (err) {
-    console.error('Decryption failed:', err);
+    console.error('Decryption authentication failed:', err);
     throw new Error('Incorrect passphrase or corrupted encrypted database');
   }
 }
 
 export function downloadEncryptedBlob(bytes: Uint8Array, vaultName: string) {
-  const blob = new Blob([toCleanArrayBuffer(bytes)], { type: 'application/octet-stream' });
+  const blob = new Blob([toCleanBuffer(bytes)], { type: 'application/octet-stream' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
