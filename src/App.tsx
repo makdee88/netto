@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import type { Database } from 'sql.js';
-import { Session } from '@supabase/supabase-js';
+import { Session, AuthChangeEvent } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 import {
   initDatabase,
@@ -67,8 +67,12 @@ export default function App() {
     deleteVaultSlot,
   } = useVaultManager(session);
 
-  const [step, setStep] = useState<AppStep>('LANDING');
-  const [subTab, setSubTab] = useState<DashboardSubTab>('OVERVIEW');
+  const [step, setStep] = useState<AppStep>(() => {
+    return (sessionStorage.getItem('netto_active_step') as AppStep) || 'LANDING';
+  });
+  const [subTab, setSubTab] = useState<DashboardSubTab>(() => {
+    return (sessionStorage.getItem('netto_sub_tab') as DashboardSubTab) || 'OVERVIEW';
+  });
   const [authMode, setAuthMode] = useState<AuthMode>('CREATE_OR_UNLOCK');
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [isMasked, setIsMasked] = useState<boolean>(true);
@@ -90,45 +94,57 @@ export default function App() {
   const [statusMsg, setStatusMsg] = useState<string>('Vault Locked');
   const [googleToken, setGoogleToken] = useState<string | null>(null);
 
-  // 1. Theme and Supabase Auth Subscription
+  const handleStepChange = (newStep: AppStep) => {
+    setStep(newStep);
+    sessionStorage.setItem('netto_active_step', newStep);
+  };
+
+  const handleTabChange = (tab: DashboardSubTab) => {
+    setSubTab(tab);
+    sessionStorage.setItem('netto_sub_tab', tab);
+  };
+
+  // 1. Initialize Theme & Supabase Auth Session
   useEffect(() => {
     const savedTheme = localStorage.getItem(THEME_KEY) as 'dark' | 'light' | null;
     if (savedTheme) setTheme(savedTheme);
+
+    const isOAuthRedirect =
+      window.location.hash.includes('access_token') ||
+      window.location.hash.includes('type=recovery') ||
+      window.location.search.includes('code=');
 
     supabase.auth.getSession().then(({ data, error }) => {
       if (error) console.error('[Netto Auth Error]:', error);
       if (data?.session) {
         setSession(data.session);
-        setStep('AUTH');
+        if (isOAuthRedirect) {
+          window.history.replaceState({}, document.title, window.location.pathname);
+          handleStepChange('AUTH');
+        }
       }
       setLoadingSession(false);
     });
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, currentSession) => {
+    } = supabase.auth.onAuthStateChange((event: AuthChangeEvent, currentSession: Session | null) => {
       setSession(currentSession);
 
-      if (currentSession) {
-        setStep('AUTH');
-      } else {
+      if (event === 'SIGNED_IN' && currentSession) {
+        handleStepChange('AUTH');
+      }
+
+      if (event === 'SIGNED_OUT' || !currentSession) {
         setDb(null);
         setPassphrase('');
         setHoldings([]);
-        setStep('LANDING');
+        handleStepChange('LANDING');
       }
     });
 
     return () => subscription.unsubscribe();
   }, []);
-
-  const handleStepChange = (newStep: AppStep) => {
-    setStep(newStep);
-  };
-
-  const handleTabChange = (tab: DashboardSubTab) => {
-    setSubTab(tab);
-  };
 
   const toggleTheme = () => {
     const next = theme === 'dark' ? 'light' : 'dark';
@@ -144,7 +160,7 @@ export default function App() {
     setActiveVaultName(newVaultName);
     sessionStorage.setItem('netto_active_vault_name', newVaultName);
     setAuthMode('CREATE_OR_UNLOCK');
-    setStep('AUTH');
+    handleStepChange('AUTH');
   };
 
   const refreshHoldings = (database: Database) => {
@@ -228,7 +244,7 @@ export default function App() {
       await persistEncryptedVault(database, passInput);
       setHasExistingVault(true);
       setStatusMsg(`Restored [${activeVaultName}]`);
-      setStep('DASHBOARD');
+      handleStepChange('DASHBOARD');
       return;
     }
 
@@ -240,7 +256,7 @@ export default function App() {
       setDb(database);
       refreshHoldings(database);
       setStatusMsg(`Vault [${activeVaultName}] Unlocked`);
-      setStep('DASHBOARD');
+      handleStepChange('DASHBOARD');
     } else {
       if (passInput !== passConfirm) throw new Error('Passphrases do not match.');
       const database = await initDatabase();
@@ -249,7 +265,7 @@ export default function App() {
       await persistEncryptedVault(database, passInput);
       setHasExistingVault(true);
       setStatusMsg(`New Vault [${activeVaultName}] Created!`);
-      setStep('DASHBOARD');
+      handleStepChange('DASHBOARD');
     }
   };
 
@@ -287,36 +303,42 @@ export default function App() {
         setDb(null);
         setPassphrase('');
         setHoldings([]);
-        setStep('AUTH');
+        handleStepChange('AUTH');
       }}
       onLogout={async () => {
         setDb(null);
         setPassphrase('');
         await supabase.auth.signOut();
-        setStep('LANDING');
+        handleStepChange('LANDING');
       }}
     />
   ) : null;
 
-  // STEP 1: Landing Page (When not logged in or explicitly clicked back)
-  if (step === 'LANDING' && !session) {
+  // STEP 1: Landing Page (Always accessible if step is LANDING, logged in or not)
+  if (step === 'LANDING') {
     return (
-      <LandingPage
-        hasExistingVault={hasExistingVault}
-        theme={theme}
-        onToggleTheme={toggleTheme}
-        onLaunchCreateOrUnlock={() => setStep('AUTH')}
-        onLaunchRestore={() => {
-          setAuthMode('RESTORE_RETURNING');
-          setStep('AUTH');
-        }}
-      />
+      <>
+        {floatingBar}
+        <LandingPage
+          hasExistingVault={hasExistingVault}
+          theme={theme}
+          onToggleTheme={toggleTheme}
+          onLaunchCreateOrUnlock={() => {
+            setAuthMode('CREATE_OR_UNLOCK');
+            handleStepChange(db ? 'DASHBOARD' : 'AUTH');
+          }}
+          onLaunchRestore={() => {
+            setAuthMode('RESTORE_RETURNING');
+            handleStepChange('AUTH');
+          }}
+        />
+      </>
     );
   }
 
-  // STEP 2A: Authentication Gate (Google, GitHub, or Magic Link)
+  // STEP 2A: Authentication Gate (If not signed into Supabase)
   if (!session) {
-    return <AuthGateScreen isDark={isDark} onBackToLanding={() => setStep('LANDING')} />;
+    return <AuthGateScreen isDark={isDark} onBackToLanding={() => handleStepChange('LANDING')} />;
   }
 
   // STEP 2B: Local Vault Password / Unlock / Create Screen
@@ -330,7 +352,7 @@ export default function App() {
           hasExistingVault={hasExistingVault}
           userEmail={userEmail}
           activeVaultName={activeVaultName}
-          onBackToLanding={() => setStep('LANDING')}
+          onBackToLanding={() => handleStepChange('LANDING')}
           onUnlockOrCreate={handleUnlockOrCreate}
           onFetchGoogleDriveVault={(onLoaded: (bytes: Uint8Array) => void) =>
             withGoogleAuth(async (token) => {
@@ -342,7 +364,7 @@ export default function App() {
             if (confirm(`Clear cached vault [${activeVaultName}]?`)) {
               localStorage.removeItem(activeStorageKey);
               setHasExistingVault(false);
-              setStep('AUTH');
+              handleStepChange('AUTH');
             }
           }}
         />
@@ -366,8 +388,9 @@ export default function App() {
           <div>
             <div className="flex items-center gap-2">
               <h1
-                onClick={() => setStep('LANDING')}
+                onClick={() => handleStepChange('LANDING')}
                 className="text-xl font-bold tracking-tight cursor-pointer hover:text-indigo-400 transition"
+                title="Go to Home"
               >
                 netto
               </h1>
