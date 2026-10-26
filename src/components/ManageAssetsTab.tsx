@@ -12,7 +12,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { BrokerType, CurrencyCode, HoldingRow, PropertyType, LiabilityType } from '../types';
-import { clearBrokerData, getProperties, getLiabilities } from '../db/database';
+import { getProperties, getLiabilities } from '../db/database';
 import { BrokerGuide } from './BrokerGuide';
 
 interface ManageAssetsTabProps {
@@ -21,7 +21,7 @@ interface ManageAssetsTabProps {
   theme: 'dark' | 'light';
   onBackToOverview: () => void;
   onCsvImport: (file: File, broker: BrokerType) => void;
-  onClearBroker: (brokerName: string) => void; // Added prop
+  onClearBroker: (brokerName: string) => void;
   onAddFD: (fd: {
     broker: string;
     symbol: string;
@@ -61,6 +61,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
   theme,
   onBackToOverview,
   onCsvImport,
+  onClearBroker,
   onAddFD,
   onAddProperty,
   onAddLiability,
@@ -171,7 +172,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                 }`}
               />
 
-              <div className="flex gap-2 pt-2">
+              <div className="flex flex-col sm:flex-row gap-2 pt-2">
                 <button
                   type="button"
                   disabled={!selectedFile}
