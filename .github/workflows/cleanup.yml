@@ -1,0 +1,54 @@
+name: Prune Old Cloudflare Previews
+
+on:
+  schedule:
+    - cron: '0 0 * * 0' # Every Sunday at midnight UTC
+  workflow_dispatch:   # Manual run button in Actions tab
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prune Old Preview Deployments
+        env:
+          # Use your existing deployment secrets here:
+          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PROJECT_NAME: netto
+          KEEP_COUNT: 5 # Retain the 5 most recent preview deployments
+        run: |
+          echo "Fetching preview deployments for project: ${PROJECT_NAME}..."
+
+          DEPLOYMENTS=$(curl -s -X GET \
+            "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/pages/projects/${PROJECT_NAME}/deployments?per_page=100" \
+            -H "Authorization: Bearer ${CF_API_TOKEN}" \
+            -H "Content-Type: application/json")
+
+          # Verify API response
+          SUCCESS=$(echo "$DEPLOYMENTS" | jq -r '.success')
+          if [ "$SUCCESS" != "true" ]; then
+            echo "Failed to fetch deployments from Cloudflare API:"
+            echo "$DEPLOYMENTS" | jq -r '.errors'
+            exit 1
+          fi
+
+          # Filter only preview builds, sort newest first, skip the top KEEP_COUNT, extract remaining IDs
+          TO_DELETE=$(echo "$DEPLOYMENTS" | jq -r --argjson KEEP "$KEEP_COUNT" '
+            [ .result[] | select(.environment == "preview") ]
+            | sort_by(.created_on) | reverse
+            | .[$KEEP:] | .[].id
+          ')
+
+          if [ -z "$TO_DELETE" ]; then
+            echo "No stale preview deployments to prune."
+            exit 0
+          fi
+
+          for ID in $TO_DELETE; do
+            echo "Deleting preview deployment: $ID"
+            curl -s -X DELETE \
+              "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/pages/projects/${PROJECT_NAME}/deployments/${ID}" \
+              -H "Authorization: Bearer ${CF_API_TOKEN}"
+          done
+
+          echo "Pruning completed successfully."
