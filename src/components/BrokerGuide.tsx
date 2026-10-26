@@ -1,102 +1,150 @@
-import React from 'react';
-import { CheckCircle2 } from 'lucide-react';
+import React, { useState } from 'react';
 import { BrokerType } from '../types';
+import { HelpCircle, ChevronDown, ChevronUp, FileSpreadsheet, CheckCircle2 } from 'lucide-react';
 
 interface BrokerGuideProps {
   broker: BrokerType;
-  theme: 'dark' | 'light';
+  isDark?: boolean;
 }
 
 const BROKER_INSTRUCTIONS: Record<
-  BrokerType,
-  { name: string; country: string; steps: string[]; tip: string }
+  string,
+  {
+    title: string;
+    format: string;
+    currency: string;
+    steps: string[];
+    notes: string;
+  }
 > = {
-  AVANZA: {
-    name: 'Avanza',
-    country: 'Sweden 🇸🇪',
+  Avanza: {
+    title: 'Avanza (Sweden)',
+    format: 'CSV (; semicolon-separated)',
+    currency: 'SEK',
     steps: [
-      'Log in to Avanza on a desktop browser and go to **Min ekonomi** → **Transaktioner**.',
-      '**First time:** Set the date filter to **Sedan start** (Since start). **Future updates:** Just export the latest month or quarter!',
-      'Click **Exportera transaktioner** (CSV) and upload the file below.',
+      'Log in to Avanza.se in your desktop browser.',
+      'Go to Min Ekonomi (My Economy) -> Transaktioner (Transactions).',
+      'Select your desired date range (or all accounts) and click Exportera transaktioner till CSV.',
+      'Upload the downloaded .csv file directly without opening or re-saving it in Excel.',
     ],
-    tip: 'Netto saves every transaction in your encrypted SQLite ledger and automatically skips duplicates if date ranges overlap.',
+    notes: 'Handles Köp (Buy), Sälj (Sell), and Utdelning (Dividend) rows automatically.',
   },
-  NORDNET: {
-    name: 'Nordnet',
-    country: 'Nordics 🇸🇪 🇳🇴 🇩🇰 🇫🇮',
+  Nordnet: {
+    title: 'Nordnet (Nordics)',
+    format: 'CSV (; or Tab separated)',
+    currency: 'SEK / NOK / DKK / EUR',
     steps: [
-      'Log in to Nordnet and navigate to **Transaktioner** (Transactions).',
-      '**First time:** Choose your full date range. **Future updates:** Export only recent weeks/months.',
-      'Click **Exportera CSV** and upload it here.',
+      'Log in to Nordnet and navigate to Mina sidor -> Transaktioner och notor.',
+      'Select the full date range for your accounts.',
+      'Click Exportera CSV at the top right of the transaction list.',
+      'Upload the exported .csv file directly here.',
     ],
-    tip: 'Overlapping date ranges are safely deduplicated automatically.',
+    notes: 'Automatically parses Nordic number formatting and currency codes.',
   },
-  ZERODHA: {
-    name: 'Zerodha (Console)',
-    country: 'India 🇮🇳',
+  Zerodha: {
+    title: 'Zerodha Kite / Console (India)',
+    format: 'Excel (.xlsx Multi-Tab) or CSV (.csv)',
+    currency: 'INR',
     steps: [
-      'Log in to **Zerodha Console** (`console.zerodha.com`).',
-      'Go to **Portfolio** → **Holdings** (or **Reports** → **Tradebook**).',
-      'Click the **Download CSV** icon at the top right of the table.',
+      'Log in to Zerodha Console (console.zerodha.com).',
+      'Go to Reports -> Tradebook (or Portfolio -> Holdings).',
+      'Select the date range and click Download XLSX or CSV.',
+      'Upload the downloaded .xlsx or .csv file directly—Netto automatically skips Zerodha metadata headers and reads the Tradebook/Holdings sheet.',
     ],
-    tip: 'Netto automatically maps NSE/BSE tickers and fetches live INR prices.',
+    notes: 'Supports both multi-tab Excel workbooks (.xlsx) and standard Tradebook CSVs.',
   },
-  UPSTOX: {
-    name: 'Upstox',
-    country: 'India 🇮🇳',
+  Groww: {
+    title: 'Groww (India)',
+    format: 'CSV / Excel (.xlsx)',
+    currency: 'INR',
     steps: [
-      'Log in to the Upstox web portal.',
-      'Navigate to **Portfolio** → **Holdings** or **Reports** → **Trade History**.',
-      'Click **Download CSV** and upload the exported report.',
+      'Log in to Groww and go to Reports -> Order History / Stocks Tradebook.',
+      'Download your equity transaction report as CSV or XLSX.',
+      'Upload the file directly to compute net holdings and average purchase cost.',
     ],
-    tip: 'Both position snapshots and trade history files are supported.',
+    notes: 'Deduplicates repeated uploads so you can safely re-import overlapping periods.',
   },
-  IBKR: {
-    name: 'Interactive Brokers',
-    country: 'Global 🌍',
+  InteractiveBrokers: {
+    title: 'Interactive Brokers (IBKR)',
+    format: 'Activity Statement / Trades CSV',
+    currency: 'USD / EUR / SEK',
     steps: [
-      'Log in to the **IBKR Client Portal**.',
-      'Go to **Performance & Reports** → **Statements** → **Activity**.',
-      'Export the **Positions** or **Trades** section in **CSV** format.',
+      'Log in to IBKR Client Portal -> Performance & Reports -> Flex Queries or Statements.',
+      'Export your Trades section in CSV format.',
+      'Upload the CSV file to import your international equity positions.',
     ],
-    tip: 'Multi-currency positions (USD, EUR, SEK) are consolidated automatically.',
+    notes: 'Reads Symbol, Date/Time, Quantity, and Trade Price columns.',
+  },
+  Degiro: {
+    title: 'DEGIRO (Europe)',
+    format: 'Transactions CSV',
+    currency: 'EUR / SEK / USD',
+    steps: [
+      'Log in to DEGIRO and go to Inbox / Activity -> Transactions.',
+      'Set your start date to the beginning of your account and click Export -> CSV.',
+      'Upload the exported Transactions.csv file.',
+    ],
+    notes: 'Extracts ISIN, product name, quantity, and execution price.',
+  },
+  Generic: {
+    title: 'Custom / Other Broker CSV',
+    format: 'Standard CSV (, or ; separated)',
+    currency: 'Default / Multi-currency',
+    steps: [
+      'Prepare a CSV file with a header row in row 1.',
+      'Include columns for: Symbol (or Name), Type (BUY/SELL), Quantity (or Qty), Price, and Date.',
+      'Save as UTF-8 .csv and upload.',
+    ],
+    notes: 'Works with Nordea, Swedbank, Revolut, or any custom spreadsheet export.',
   },
 };
 
-export const BrokerGuide: React.FC<BrokerGuideProps> = ({ broker, theme }) => {
-  const isDark = theme === 'dark';
-  const info = BROKER_INSTRUCTIONS[broker];
+export const BrokerGuide: React.FC<BrokerGuideProps> = ({ broker, isDark = true }) => {
+  const [isOpen, setIsOpen] = useState<boolean>(true);
+  const info = BROKER_INSTRUCTIONS[broker] || BROKER_INSTRUCTIONS.Generic;
 
   return (
-    <div className={`p-5 rounded-2xl border space-y-3 ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-      <div className="flex justify-between items-center">
+    <div
+      className={`mb-6 rounded-2xl border transition-all ${
+        isDark
+          ? 'bg-slate-950/60 border-slate-800/80 text-slate-200'
+          : 'bg-slate-50 border-slate-200 text-slate-800'
+      }`}
+    >
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full px-4 py-3 flex items-center justify-between text-left text-xs font-bold"
+      >
         <div className="flex items-center gap-2">
-          <span className="font-bold text-sm text-indigo-500">{info.name}</span>
-          <span className="text-xs opacity-60">({info.country})</span>
+          <HelpCircle className="w-4 h-4 text-indigo-400 shrink-0"/>
+          <span>How to export from {info.title}</span>
+          <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-mono">
+            {info.format}
+          </span>
         </div>
-        <span className="text-[10px] bg-indigo-500/10 text-indigo-500 border border-indigo-500/20 px-2 py-0.5 rounded-full font-semibold">
-          Incremental Sync Ready
-        </span>
-      </div>
+        {isOpen ? (
+          <ChevronUp className="w-4 h-4 opacity-60"/>
+        ) : (
+          <ChevronDown className="w-4 h-4 opacity-60"/>
+        )}
+      </button>
 
-      <div className="space-y-2 pt-1">
-        {info.steps.map((step, idx) => (
-          <div key={idx} className="flex items-start gap-2 text-xs">
-            <span className="w-4 h-4 rounded-full bg-indigo-600 text-white font-bold flex items-center justify-center shrink-0 mt-0.5 text-[10px]">
-              {idx + 1}
-            </span>
-            <p
-              className="opacity-90 leading-relaxed"
-              dangerouslySetInnerHTML={{ __html: step.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>') }}
-            />
+      {isOpen && (
+        <div className="px-4 pb-4 pt-1 border-t border-slate-800/30 text-xs space-y-2.5">
+          <ol className="list-decimal pl-4 space-y-1.5 opacity-90">
+            {info.steps.map((step, idx) => (
+              <li key={idx} className="leading-relaxed">
+                {step}
+              </li>
+            ))}
+          </ol>
+          <div className="flex items-center gap-2 pt-1 text-[11px] text-emerald-400 font-medium">
+            <CheckCircle2 className="w-3.5 h-3.5 shrink-0"/>
+            <span>{info.notes}</span>
           </div>
-        ))}
-      </div>
-
-      <div className={`p-3 rounded-xl border text-[11px] flex items-center gap-2 ${isDark ? 'bg-slate-900 border-slate-800 text-indigo-300' : 'bg-indigo-50 border-indigo-100 text-indigo-900'}`}>
-        <CheckCircle2 className="w-4 h-4 shrink-0 text-indigo-500" />
-        <span><b>Smart Ledger:</b> {info.tip}</span>
-      </div>
+        </div>
+      )}
     </div>
   );
 };

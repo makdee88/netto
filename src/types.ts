@@ -1,6 +1,18 @@
+// ==========================================
+// Netto Core Types & Interfaces
+// ==========================================
+
 export type CurrencyCode = 'SEK' | 'INR' | 'USD' | 'EUR';
 
-export type BrokerType = 'Avanza' | 'Zerodha' | 'Nordea' | 'Swedbank' | 'Other' | string;
+export type BrokerType = 
+  | 'Avanza' 
+  | 'Nordnet' 
+  | 'Zerodha' 
+  | 'Groww' 
+  | 'InteractiveBrokers' 
+  | 'Degiro' 
+  | 'Generic' 
+  | string;
 
 export type AuthMode = 'CREATE_OR_UNLOCK' | 'RESTORE_RETURNING';
 
@@ -11,6 +23,8 @@ export type PropertyType = 'Apartment' | 'House / Villa' | 'Plot / Land' | 'Comm
 export type LiabilityType = 'Mortgage' | 'Vehicle Loan' | 'Personal Loan' | 'Credit / Other' | string;
 
 export type CompoundingFrequency = number;
+
+// --- Holdings & Portfolios ---
 
 export interface HoldingRow {
   id: number;
@@ -32,6 +46,8 @@ export interface HoldingRow {
   updated_at?: string;
 }
 
+// --- Transactions Ledger ---
+
 export interface TransactionRow {
   id: number;
   broker: string;
@@ -50,6 +66,8 @@ export interface TransactionRow {
   created_at?: string;
 }
 
+// --- Real Estate / Properties ---
+
 export interface PropertyRow {
   id: number;
   name: string;
@@ -63,6 +81,8 @@ export interface PropertyRow {
   updated_at?: string;
 }
 
+// --- Liabilities & Debt ---
+
 export interface LiabilityRow {
   id: number;
   name: string;
@@ -75,6 +95,8 @@ export interface LiabilityRow {
   updated_at?: string;
 }
 
+// --- Net Worth Snapshots ---
+
 export interface SnapshotRow {
   id: number;
   timestamp: string;
@@ -82,6 +104,8 @@ export interface SnapshotRow {
   total_liabilities: number;
   net_worth: number;
 }
+
+// --- Import & Ingestion Results ---
 
 export interface CsvImportResult {
   broker: string;
@@ -91,11 +115,15 @@ export interface CsvImportResult {
   errors?: string[];
 }
 
+// --- Market Quotes & Exchange Rates ---
+
 export interface LiveMarketData {
   quotes: Record<string, number>;
   fxRates: Record<string, number>;
   updatedAt: string;
 }
+
+// --- Vault Metadata & Settings ---
 
 export interface VaultMetadata {
   vaultName: string;
@@ -103,6 +131,8 @@ export interface VaultMetadata {
   lastSyncedAt?: string;
   storageKey: string;
 }
+
+// --- Global Window Types (GIS / Google Identity Services) ---
 
 declare global {
   interface Window {
