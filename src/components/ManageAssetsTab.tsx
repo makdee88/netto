@@ -10,11 +10,6 @@ import {
   CreditCard,
   Upload,
   ArrowLeft,
-  Calendar,
-  Percent,
-  Coins,
-  Layers,
-  ChevronRight,
 } from 'lucide-react';
 import { getProperties, getLiabilities } from '../db/database';
 
@@ -32,7 +27,7 @@ interface ManageAssetsTabProps {
     currency: CurrencyCode;
     principal: number;
     interest_rate: number;
-    compounding_freq: string;
+    compounding_freq: number;
     start_date: string;
     maturity_date: string;
   }) => void;
@@ -79,14 +74,14 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
   const [selectedBroker, setSelectedBroker] = useState<'Avanza' | 'Zerodha'>('Avanza');
   const [activeFormTab, setActiveFormTab] = useState<'EQUITY' | 'FD' | 'PROPERTY' | 'LIABILITY'>('EQUITY');
 
-  // Fixed Deposit Form
+  // Fixed Deposit Form (compounding_freq as number: 1=Annual, 2=Semi-Annual, 4=Quarterly, 12=Monthly)
   const [fdForm, setFdForm] = useState({
     name: '',
     broker: 'Bank',
     currency: 'SEK' as CurrencyCode,
     principal: 0,
     interest_rate: 3.5,
-    compounding_freq: 'ANNUAL',
+    compounding_freq: 4,
     start_date: new Date().toISOString().slice(0, 10),
     maturity_date: new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10),
   });
@@ -114,6 +109,13 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
 
   const equityHoldings = holdings.filter((h) => h.category === 'EQUITY');
   const fdHoldings = holdings.filter((h) => h.category === 'FIXED_DEPOSIT');
+
+  const formatCompoundingLabel = (freq: number) => {
+    if (freq === 12) return 'Monthly';
+    if (freq === 4) return 'Quarterly';
+    if (freq === 2) return 'Semi-Annual';
+    return 'Annual';
+  };
 
   return (
     <div className="space-y-8 animate-in fade-in">
@@ -161,7 +163,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
         </div>
       </div>
 
-      {/* 1. Broker Import Section (Active when EQUITY is selected) */}
+      {/* 1. Broker Import Section */}
       {activeFormTab === 'EQUITY' && (
         <div
           className={`p-6 sm:p-8 rounded-3xl border shadow-sm ${
@@ -368,13 +370,15 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                   <label className="block mb-1 opacity-70">Compounding</label>
                   <select
                     value={fdForm.compounding_freq}
-                    onChange={(e) => setFdForm({ ...fdForm, compounding_freq: e.target.value })}
+                    onChange={(e) =>
+                      setFdForm({ ...fdForm, compounding_freq: parseInt(e.target.value, 10) || 1 })
+                    }
                     className="w-full px-3 py-2 rounded-xl border bg-transparent"
                   >
-                    <option value="ANNUAL">Annual</option>
-                    <option value="SEMI_ANNUAL">Semi-Annual</option>
-                    <option value="QUARTERLY">Quarterly</option>
-                    <option value="MONTHLY">Monthly</option>
+                    <option value={1}>Annual (1x/yr)</option>
+                    <option value={2}>Semi-Annual (2x/yr)</option>
+                    <option value={4}>Quarterly (4x/yr)</option>
+                    <option value={12}>Monthly (12x/yr)</option>
                   </select>
                 </div>
               </div>
@@ -433,10 +437,10 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                       <td className="py-3 font-semibold">{fd.broker}</td>
                       <td className="py-3">{fd.name}</td>
                       <td className="py-3 text-right font-mono font-medium">
-                        {fd.principal?.toLocaleString()} {fd.currency}
+                        {fd.principal.toLocaleString()} {fd.currency}
                       </td>
                       <td className="py-3 text-right font-mono text-emerald-400">
-                        {fd.interest_rate}% ({fd.compounding_freq})
+                        {fd.interest_rate}% ({formatCompoundingLabel(fd.compounding_freq)})
                       </td>
                       <td className="py-3 text-right font-mono opacity-80">{fd.maturity_date || '-'}</td>
                       <td className="py-3 text-right">
@@ -491,7 +495,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                   value={propForm.name}
                   onChange={(e) => setPropForm({ ...propForm, name: e.target.value })}
                   className="w-full px-3 py-2 rounded-xl border bg-transparent"
-                  placeholder="e.g. Solna Apartment"
+                  placeholder="e.g. Primary Apartment"
                 />
               </div>
 

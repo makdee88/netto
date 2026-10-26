@@ -10,7 +10,7 @@ export type PropertyType = 'Apartment' | 'House / Villa' | 'Plot / Land' | 'Comm
 
 export type LiabilityType = 'Mortgage' | 'Vehicle Loan' | 'Personal Loan' | 'Credit / Other' | string;
 
-export type CompoundingFrequency = 'ANNUAL' | 'SEMI_ANNUAL' | 'QUARTERLY' | 'MONTHLY' | string;
+export type CompoundingFrequency = number;
 
 export interface HoldingRow {
   id: number;
@@ -18,14 +18,14 @@ export interface HoldingRow {
   category: AssetCategory;
   symbol: string;
   name: string;
-  isin: string;
+  isin?: string;
   currency: CurrencyCode;
   quantity: number;
   avg_price: number;
   market_price: number;
   principal: number;
   interest_rate: number;
-  compounding_freq: string;
+  compounding_freq: number;
   start_date: string;
   maturity_date: string;
   created_at?: string;
