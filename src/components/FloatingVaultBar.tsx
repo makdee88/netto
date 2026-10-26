@@ -36,91 +36,111 @@ export const FloatingVaultBar: React.FC<FloatingVaultBarProps> = ({
   };
 
   return (
-    <div
-      className={`fixed bottom-4 right-4 z-50 flex flex-wrap items-center gap-3 px-4 py-2.5 rounded-2xl border shadow-2xl backdrop-blur-md text-xs transition ${
+    <aside
+      aria-label="User and Vault Session"
+      className={`fixed top-1/2 -translate-y-1/2 right-4 z-50 flex flex-col gap-3 p-3.5 rounded-2xl border shadow-2xl backdrop-blur-md text-xs transition max-w-[260px] ${
         isDark
-          ? 'bg-slate-900/95 border-emerald-500/40 text-slate-200'
-          : 'bg-white/95 border-emerald-500/40 text-slate-800'
+          ? 'bg-slate-900/95 border-emerald-500/30 text-slate-200 shadow-black/60'
+          : 'bg-white/95 border-emerald-500/40 text-slate-800 shadow-slate-300/60'
       }`}
     >
-      {/* Welcome & Identity Badge */}
-      <div className="flex items-center gap-2 pr-2 border-r border-slate-700/40">
-        <div className="p-1 rounded-full bg-emerald-500/20 text-emerald-400">
-          <UserCheck className="w-3.5 h-3.5" />
+      {/* User Information */}
+      <div className="flex items-start gap-2 pb-2.5 border-b border-slate-700/40">
+        <div className="p-1.5 rounded-full bg-emerald-500/20 text-emerald-400 shrink-0 mt-0.5">
+          <UserCheck className="w-4 h-4" />
         </div>
-        <div className="flex flex-col">
-          <span className="text-[10px] uppercase font-bold tracking-wider text-emerald-400 leading-none">
-            Logged In
-          </span>
-          <span className="font-bold text-slate-100 text-xs mt-0.5">
-            {displayName} {email && <span className="font-normal opacity-60 text-[10px]">({email})</span>}
-          </span>
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-[10px] uppercase font-bold tracking-wider text-emerald-400">
+              Authenticated
+            </span>
+          </div>
+          <p className="font-bold text-slate-100 text-xs truncate" title={displayName}>
+            {displayName}
+          </p>
+          <p className="opacity-60 text-[10px] truncate" title={email}>
+            {email}
+          </p>
         </div>
       </div>
 
-      {/* Multi-Database Selector */}
-      <div className="flex items-center gap-1.5">
-        <DbIcon className="w-3.5 h-3.5 text-indigo-400" />
-        <span className="opacity-70 font-medium">Vault:</span>
-        {!isCreating ? (
-          <>
-            <select
-              value={activeVaultName}
-              onChange={(e) => onSwitchVault(e.target.value)}
-              className={`px-2 py-1 rounded-lg border font-bold text-xs cursor-pointer ${
-                isDark ? 'bg-slate-950 border-slate-700 text-white' : 'bg-slate-100 border-slate-300 text-slate-900'
-              }`}
-            >
-              {vaultList.map((vName) => (
-                <option key={vName} value={vName}>
-                  {vName}
-                </option>
-              ))}
-            </select>
+      {/* Vault Switcher & Creator */}
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between text-[11px] opacity-75 font-semibold">
+          <span className="flex items-center gap-1">
+            <DbIcon className="w-3.5 h-3.5 text-indigo-400" /> Active Vault
+          </span>
+          {!isCreating && (
             <button
               onClick={() => setIsCreating(true)}
-              className="p-1 rounded-lg bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600 hover:text-white transition"
-              title="Create new named vault"
+              className="flex items-center gap-0.5 text-indigo-400 hover:text-indigo-300"
+              title="Create another vault slot"
             >
               <FolderPlus className="w-3.5 h-3.5" />
+              <span>New</span>
             </button>
-          </>
+          )}
+        </div>
+
+        {!isCreating ? (
+          <select
+            value={activeVaultName}
+            onChange={(e) => onSwitchVault(e.target.value)}
+            className={`w-full px-2.5 py-1.5 rounded-xl border font-semibold text-xs cursor-pointer truncate ${
+              isDark
+                ? 'bg-slate-950 border-slate-700 text-white'
+                : 'bg-slate-100 border-slate-300 text-slate-900'
+            }`}
+            title={`Active: ${activeVaultName}`}
+          >
+            {vaultList.map((vName) => (
+              <option key={vName} value={vName}>
+                {vName === email ? `${vName} (Default)` : vName}
+              </option>
+            ))}
+          </select>
         ) : (
-          <form onSubmit={handleSubmit} className="flex items-center gap-1">
+          <form onSubmit={handleSubmit} className="space-y-1.5 pt-1">
             <input
               type="text"
               value={nameInput}
               onChange={(e) => setNameInput(e.target.value)}
-              placeholder="Vault name..."
+              placeholder="e.g. Work, Family..."
               autoFocus
-              className={`px-2 py-0.5 rounded border text-xs w-28 ${
-                isDark ? 'bg-slate-950 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
+              className={`w-full px-2 py-1 rounded-lg border text-xs ${
+                isDark
+                  ? 'bg-slate-950 border-slate-700 text-white'
+                  : 'bg-white border-slate-300 text-slate-900'
               }`}
             />
-            <button
-              type="submit"
-              className="px-2 py-0.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded font-semibold"
-            >
-              Add
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsCreating(false)}
-              className="px-1.5 py-0.5 opacity-70 hover:opacity-100"
-            >
-              ✕
-            </button>
+            <div className="flex gap-1.5">
+              <button
+                type="submit"
+                className="flex-1 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-semibold text-[11px]"
+              >
+                Add Vault
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsCreating(false)}
+                className="px-2 py-1 rounded-lg border border-slate-700 opacity-75 hover:opacity-100 text-[11px]"
+              >
+                Cancel
+              </button>
+            </div>
           </form>
         )}
       </div>
 
+      {/* Logout */}
       <button
         onClick={onLogout}
-        className="flex items-center gap-1 pl-2 border-l border-slate-700/40 text-rose-400 hover:text-rose-300 font-semibold transition"
+        className="w-full mt-1 flex items-center justify-center gap-1.5 py-1.5 rounded-xl border border-rose-500/20 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 font-semibold text-[11px] transition"
       >
         <LogOut className="w-3.5 h-3.5" />
-        <span>Logout</span>
+        <span>Sign Out</span>
       </button>
-    </div>
+    </aside>
   );
 };
