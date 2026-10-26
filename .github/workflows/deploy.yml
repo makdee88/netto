@@ -29,6 +29,7 @@ jobs:
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
 
       - name: Ensure Pages Project Exists & Deploy
         run: |
@@ -38,7 +39,7 @@ jobs:
           fi
 
           # Automatically create the Pages project if it doesn't exist yet
-          npx wrangler pages project create netto --production-branch=main || true
+          # npx wrangler pages project create netto --production-branch=main || true
 
           # Deploy the dist folder
           npx wrangler pages deploy dist --project-name=netto --branch=$TARGET_BRANCH
