@@ -41,11 +41,10 @@ export interface TransactionRow {
 
 export interface CsvImportResult {
   broker: string;
-  mode: 'TRANSACTIONS' | 'SNAPSHOT';
-  totalRowsRead: number;
   newTransactionsAdded: number;
-  duplicateTransactionsSkipped: number;
   holdingsUpdated: number;
+  duplicatesSkipped?: number;
+  errors?: string[];
 }
 
 export interface PropertyRow {

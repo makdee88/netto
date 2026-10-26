@@ -1,6 +1,6 @@
 import React from 'react';
 import { CsvImportResult } from '../types';
-import { CheckCircle2, AlertTriangle, FileSpreadsheet, X } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, X } from 'lucide-react';
 
 interface CsvImportSummaryModalProps {
   summary: CsvImportResult;
@@ -13,6 +13,9 @@ export const CsvImportSummaryModal: React.FC<CsvImportSummaryModalProps> = ({
   isDark,
   onClose,
 }) => {
+  const duplicates = summary.duplicatesSkipped ?? 0;
+  const errors = summary.errors ?? [];
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in">
       <div
@@ -63,20 +66,20 @@ export const CsvImportSummaryModal: React.FC<CsvImportSummaryModalProps> = ({
           </div>
         </div>
 
-        {summary.duplicatesSkipped > 0 && (
+        {duplicates > 0 && (
           <div className="flex items-center gap-2 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs mb-4">
             <AlertTriangle className="w-4 h-4 shrink-0" />
             <span>
-              Skipped <strong>{summary.duplicatesSkipped}</strong> identical duplicate transactions.
+              Skipped <strong>{duplicates}</strong> duplicate transactions.
             </span>
           </div>
         )}
 
-        {summary.errors && summary.errors.length > 0 && (
+        {errors.length > 0 && (
           <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs mb-4 max-h-32 overflow-y-auto">
             <div className="font-bold mb-1">Warnings / Parse notes:</div>
             <ul className="list-disc pl-4 space-y-0.5">
-              {summary.errors.map((err, i) => (
+              {errors.map((err: string, i: number) => (
                 <li key={i}>{err}</li>
               ))}
             </ul>
