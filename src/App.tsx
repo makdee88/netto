@@ -6,6 +6,10 @@ import { ManageAssetsTab } from './components/ManageAssetsTab';
 export function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [loadingSession, setLoadingSession] = useState(true);
+  
+  // Navigation / View State: 'landing' | 'auth' | 'vault-unlock' | 'dashboard'
+  const [currentView, setCurrentView] = useState<'landing' | 'auth' | 'vault-unlock' | 'dashboard'>('landing');
+
   const [vaultUnlocked, setVaultUnlocked] = useState(false);
   const [vaultPassword, setVaultPassword] = useState('');
   const [activeTab, setActiveTab] = useState<'overview' | 'manage-assets'>('overview');
@@ -18,11 +22,9 @@ export function App() {
   const [magicLinkSent, setMagicLinkSent] = useState(false);
 
   useEffect(() => {
-    // Check initial session & handle magic link hash redirects
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) {
         setSession(session);
-        // Clean URL hash if redirected from magic link
         if (window.location.hash) {
           window.history.replaceState({}, document.title, window.location.pathname);
         }
@@ -42,6 +44,16 @@ export function App() {
 
     return () => subscription.unsubscribe();
   }, []);
+
+  const handleGetStarted = () => {
+    if (!session) {
+      setCurrentView('auth');
+    } else if (!vaultUnlocked) {
+      setCurrentView('vault-unlock');
+    } else {
+      setCurrentView('dashboard');
+    }
+  };
 
   const handleSendMagicLink = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -75,11 +87,81 @@ export function App() {
     );
   }
 
-  // 1. Supabase Magic Link Authentication Screen
-  if (!session) {
+  // Floating User Status Bar
+  const userStatusBar = session && (
+    <div className="absolute top-4 right-4 bg-slate-900/90 backdrop-blur border border-slate-800 px-3 py-1.5 rounded-full flex items-center space-x-3 text-xs shadow-lg z-50">
+      <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+      <span className="text-slate-300 font-medium">{session.user.email}</span>
+      <button
+        onClick={() => {
+          setVaultUnlocked(false);
+          setVaultPassword('');
+          supabase.auth.signOut();
+          setCurrentView('landing');
+        }}
+        className="text-slate-400 hover:text-slate-100 bg-slate-800 px-2 py-0.5 rounded transition"
+      >
+        Sign Out
+      </button>
+    </div>
+  );
+
+  // 1. Landing Page View
+  if (currentView === 'landing') {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-between relative">
+        {userStatusBar}
+        <header className="max-w-6xl mx-auto w-full px-6 py-6 flex justify-between items-center">
+          <span className="font-bold text-xl tracking-tight text-indigo-400">Netto</span>
+          {session && (
+            <button
+              onClick={() => setCurrentView(vaultUnlocked ? 'dashboard' : 'vault-unlock')}
+              className="text-xs px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded transition font-medium"
+            >
+              Go to App →
+            </button>
+          )}
+        </header>
+
+        <main className="max-w-4xl mx-auto px-6 text-center py-20 space-y-8">
+          <div className="inline-block px-3 py-1 bg-indigo-950/60 border border-indigo-800/50 rounded-full text-indigo-300 text-xs font-semibold uppercase tracking-wider mb-2">
+            Local-First Encrypted Asset Management
+          </div>
+          <h1 className="text-4xl sm:text-6xl font-extrabold tracking-tight text-slate-100">
+            Take absolute control of your <span className="text-indigo-400">net worth</span>.
+          </h1>
+          <p className="text-lg text-slate-400 max-w-2xl mx-auto">
+            A secure, private portfolio tracker powered by local AES-256-GCM encrypted SQLite vaults and Supabase authentication.
+          </p>
+          <div>
+            <button
+              onClick={handleGetStarted}
+              className="px-8 py-3.5 bg-indigo-600 hover:bg-indigo-500 font-semibold text-lg rounded-xl shadow-lg shadow-indigo-600/20 transition transform hover:-translate-y-0.5"
+            >
+              Get Started
+            </button>
+          </div>
+        </main>
+
+        <footer className="max-w-6xl mx-auto w-full px-6 py-6 border-t border-slate-900 text-center text-xs text-slate-500">
+          Netto &bull; Secured locally
+        </footer>
+      </div>
+    );
+  }
+
+  // 2. Auth Screen View
+  if (currentView === 'auth') {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4 relative">
+        {userStatusBar}
         <div className="max-w-md w-full bg-slate-900 border border-slate-800 p-6 rounded-xl shadow-xl">
+          <button
+            onClick={() => setCurrentView('landing')}
+            className="text-xs text-slate-400 hover:text-slate-200 mb-4 block"
+          >
+            ← Back to Home
+          </button>
           <h2 className="text-2xl font-bold mb-2">Netto Vault Access</h2>
           <p className="text-sm text-slate-400 mb-6">
             Sign in securely using a magic link sent to your email.
@@ -150,30 +232,18 @@ export function App() {
     );
   }
 
-  // Floating User Status Bar (visible during vault lock screen and dashboard)
-  const userStatusBar = (
-    <div className="absolute top-4 right-4 bg-slate-900/90 backdrop-blur border border-slate-800 px-3 py-1.5 rounded-full flex items-center space-x-3 text-xs shadow-lg z-50">
-      <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-      <span className="text-slate-300 font-medium">{session.user.email}</span>
-      <button
-        onClick={() => {
-          setVaultUnlocked(false);
-          setVaultPassword('');
-          supabase.auth.signOut();
-        }}
-        className="text-slate-400 hover:text-slate-100 bg-slate-800 px-2 py-0.5 rounded transition"
-      >
-        Sign Out
-      </button>
-    </div>
-  );
-
-  // 2. Local AES-256-GCM SQLite Vault Decryption Checkpoint
-  if (!vaultUnlocked) {
+  // 3. Vault Decryption Unlock View
+  if (currentView === 'vault-unlock') {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4 relative">
         {userStatusBar}
         <div className="max-w-md w-full bg-slate-900 border border-slate-800 p-6 rounded-xl shadow-xl">
+          <button
+            onClick={() => setCurrentView('landing')}
+            className="text-xs text-slate-400 hover:text-slate-200 mb-4 block"
+          >
+            ← Back to Home
+          </button>
           <h2 className="text-xl font-bold mb-2">Unlock Local Vault</h2>
           <p className="text-sm text-slate-400 mb-6">
             Enter your local vault encryption passphrase to decrypt your local-first SQLite database.
@@ -183,6 +253,7 @@ export function App() {
               e.preventDefault();
               if (vaultPassword.length > 0) {
                 setVaultUnlocked(true);
+                setCurrentView('dashboard');
               }
             }}
             className="space-y-4"
@@ -212,14 +283,19 @@ export function App() {
     );
   }
 
-  // 3. Main Dashboard & Navigation
+  // 4. Main Dashboard View
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 relative">
       {userStatusBar}
       <header className="border-b border-slate-800 bg-slate-900/50 backdrop-blur sticky top-0 z-10">
         <div className="max-w-6xl mx-auto px-6 h-16 flex justify-between items-center pr-48">
           <div className="flex items-center space-x-6">
-            <span className="font-bold text-lg tracking-tight text-indigo-400">Netto</span>
+            <button 
+              onClick={() => setCurrentView('landing')}
+              className="font-bold text-lg tracking-tight text-indigo-400 hover:opacity-80 transition"
+            >
+              Netto
+            </button>
             <nav className="flex space-x-2">
               <button
                 onClick={() => setActiveTab('overview')}
