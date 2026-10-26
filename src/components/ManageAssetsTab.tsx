@@ -1,27 +1,30 @@
 import React, { useState } from 'react';
 import type { Database } from 'sql.js';
+import { HoldingRow, CurrencyCode } from '../types';
 import {
-  Upload,
-  Building2,
-  CreditCard,
-  PlusCircle,
-  Trash2,
   FileSpreadsheet,
+  Trash2,
+  Plus,
+  Landmark,
+  Building,
+  CreditCard,
+  Upload,
   ArrowLeft,
+  Calendar,
+  Percent,
   Coins,
-  ShieldCheck,
+  Layers,
+  ChevronRight,
 } from 'lucide-react';
-import { BrokerType, CurrencyCode, HoldingRow, PropertyType, LiabilityType } from '../types';
 import { getProperties, getLiabilities } from '../db/database';
-import { BrokerGuide } from './BrokerGuide';
 
 interface ManageAssetsTabProps {
   db: Database;
   holdings: HoldingRow[];
   theme: 'dark' | 'light';
   onBackToOverview: () => void;
-  onCsvImport: (file: File, broker: BrokerType) => void;
-  onClearBroker: (brokerName: string) => void;
+  onCsvImport: (file: File, broker: string) => void;
+  onClearBroker: (broker: string) => void;
   onAddFD: (fd: {
     broker: string;
     symbol: string;
@@ -29,13 +32,13 @@ interface ManageAssetsTabProps {
     currency: CurrencyCode;
     principal: number;
     interest_rate: number;
-    compounding_freq: number;
+    compounding_freq: string;
     start_date: string;
     maturity_date: string;
   }) => void;
   onAddProperty: (p: {
     name: string;
-    property_type: PropertyType;
+    property_type: string;
     currency: CurrencyCode;
     buy_price: number;
     buy_month: number;
@@ -44,7 +47,7 @@ interface ManageAssetsTabProps {
   }) => void;
   onAddLiability: (l: {
     name: string;
-    liability_type: LiabilityType;
+    liability_type: string;
     currency: CurrencyCode;
     total_loan: number;
     remaining_balance: number;
@@ -70,593 +73,745 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
   onDeleteLiability,
 }) => {
   const isDark = theme === 'dark';
-  const [activeBroker, setActiveBroker] = useState<BrokerType>('AVANZA');
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-
-  // FD Form State
-  const [fdBroker, setFdBroker] = useState('Swedbank');
-  const [fdName, setFdName] = useState('Fast-Deposit 1');
-  const [fdCurrency, setFdCurrency] = useState<CurrencyCode>('SEK');
-  const [fdPrincipal, setFdPrincipal] = useState<string>('50000');
-  const [fdRate, setFdRate] = useState<string>('3.75');
-  const [fdStart, setFdStart] = useState<string>('2025-01-01');
-  const [fdMaturity, setFdMaturity] = useState<string>('2026-01-01');
-
-  // Property Form State
-  const [propName, setPropName] = useState('Stockholm Apartment');
-  const [propType, setPropType] = useState<PropertyType>('APARTMENT');
-  const [propCurr, setPropCurr] = useState<CurrencyCode>('SEK');
-  const [propBuyPrice, setPropBuyPrice] = useState('2500000');
-  const [propBuyMonth, setPropBuyMonth] = useState('6');
-  const [propBuyYear, setPropBuyYear] = useState('2021');
-  const [propCurrVal, setPropCurrVal] = useState('2900000');
-
-  // Liability Form State
-  const [liabName, setLiabName] = useState('Home Mortgage');
-  const [liabType, setLiabType] = useState<LiabilityType>('MORTGAGE');
-  const [liabCurr, setLiabCurr] = useState<CurrencyCode>('SEK');
-  const [liabTotal, setLiabTotal] = useState('2000000');
-  const [liabRem, setLiabRem] = useState('1850000');
-  const [liabRate, setLiabRate] = useState('4.25');
-
   const properties = getProperties(db);
   const liabilities = getLiabilities(db);
 
+  const [selectedBroker, setSelectedBroker] = useState<'Avanza' | 'Zerodha'>('Avanza');
+  const [activeFormTab, setActiveFormTab] = useState<'EQUITY' | 'FD' | 'PROPERTY' | 'LIABILITY'>('EQUITY');
+
+  // Fixed Deposit Form
+  const [fdForm, setFdForm] = useState({
+    name: '',
+    broker: 'Bank',
+    currency: 'SEK' as CurrencyCode,
+    principal: 0,
+    interest_rate: 3.5,
+    compounding_freq: 'ANNUAL',
+    start_date: new Date().toISOString().slice(0, 10),
+    maturity_date: new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10),
+  });
+
+  // Property Form
+  const [propForm, setPropForm] = useState({
+    name: '',
+    property_type: 'Apartment',
+    currency: 'SEK' as CurrencyCode,
+    buy_price: 0,
+    buy_month: new Date().getMonth() + 1,
+    buy_year: new Date().getFullYear(),
+    current_price: 0,
+  });
+
+  // Liability Form
+  const [liabForm, setLiabForm] = useState({
+    name: '',
+    liability_type: 'Mortgage',
+    currency: 'SEK' as CurrencyCode,
+    total_loan: 0,
+    remaining_balance: 0,
+    interest_rate: 3.5,
+  });
+
+  const equityHoldings = holdings.filter((h) => h.category === 'EQUITY');
+  const fdHoldings = holdings.filter((h) => h.category === 'FIXED_DEPOSIT');
+
   return (
-    <div className="space-y-8 pb-12">
-      <div className="flex justify-between items-center">
-        <div>
-          <h2 className="text-lg font-extrabold tracking-tight">Manage & Import Assets</h2>
-          <p className="text-xs opacity-60">Sync broker CSVs, add fixed deposits, real estate, and loans.</p>
-        </div>
+    <div className="space-y-8 animate-in fade-in">
+      {/* Top Navigation */}
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <button
           onClick={onBackToOverview}
-          className={`px-4 py-2 rounded-xl text-xs font-semibold border flex items-center gap-1.5 transition ${
-            isDark ? 'bg-slate-900 border-slate-700 hover:bg-slate-800' : 'bg-white border-slate-300 hover:bg-slate-100'
-          }`}
+          className="flex items-center gap-1.5 text-xs font-semibold opacity-70 hover:opacity-100 transition"
         >
           <ArrowLeft className="w-4 h-4" /> Back to Overview
         </button>
+        <div className="flex items-center gap-1 bg-slate-950/20 p-1 rounded-xl text-xs font-semibold">
+          <button
+            onClick={() => setActiveFormTab('EQUITY')}
+            className={`px-3 py-1.5 rounded-lg transition ${
+              activeFormTab === 'EQUITY' ? 'bg-indigo-600 text-white shadow' : 'opacity-70 hover:opacity-100'
+            }`}
+          >
+            Broker Import
+          </button>
+          <button
+            onClick={() => setActiveFormTab('FD')}
+            className={`px-3 py-1.5 rounded-lg transition ${
+              activeFormTab === 'FD' ? 'bg-indigo-600 text-white shadow' : 'opacity-70 hover:opacity-100'
+            }`}
+          >
+            Fixed Deposits
+          </button>
+          <button
+            onClick={() => setActiveFormTab('PROPERTY')}
+            className={`px-3 py-1.5 rounded-lg transition ${
+              activeFormTab === 'PROPERTY' ? 'bg-indigo-600 text-white shadow' : 'opacity-70 hover:opacity-100'
+            }`}
+          >
+            Real Estate
+          </button>
+          <button
+            onClick={() => setActiveFormTab('LIABILITY')}
+            className={`px-3 py-1.5 rounded-lg transition ${
+              activeFormTab === 'LIABILITY' ? 'bg-indigo-600 text-white shadow' : 'opacity-70 hover:opacity-100'
+            }`}
+          >
+            Loans & Mortgages
+          </button>
+        </div>
       </div>
 
-      {/* Section 1: Broker CSV Import & Ledger Reset */}
-      <div className={`border p-6 rounded-3xl space-y-6 shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
-        <div className="flex flex-wrap justify-between items-center gap-4 border-b pb-4 border-slate-800/40">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2.5 rounded-xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
-              <FileSpreadsheet className="w-5 h-5" />
-            </div>
+      {/* 1. Broker Import Section (Active when EQUITY is selected) */}
+      {activeFormTab === 'EQUITY' && (
+        <div
+          className={`p-6 sm:p-8 rounded-3xl border shadow-sm ${
+            isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+          }`}
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 pb-6 border-b border-dashed border-slate-800/40">
             <div>
-              <h3 className="font-bold text-sm">Incremental Broker CSV Import</h3>
-              <p className="text-[11px] opacity-60">Upload export statements from Avanza, Nordnet, Zerodha, Upstox, or IBKR.</p>
+              <div className="flex items-center gap-2">
+                <FileSpreadsheet className="w-5 h-5 text-indigo-400" />
+                <h3 className="text-base font-bold">Broker Ledger Import</h3>
+              </div>
+              <p className={`text-xs mt-1 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+                Import tradebooks and transactions via CSV or Excel (.xlsx) from Avanza or Zerodha.
+              </p>
             </div>
-          </div>
 
-          <div className="flex items-center gap-2">
-            {(['AVANZA', 'NORDNET', 'ZERODHA', 'UPSTOX', 'IBKR'] as BrokerType[]).map((b) => (
-              <button
-                key={b}
-                onClick={() => {
-                  setActiveBroker(b);
-                  setSelectedFile(null);
-                }}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
-                  activeBroker === b
-                    ? 'bg-indigo-600 text-white shadow'
-                    : isDark
-                    ? 'bg-slate-800/60 text-slate-400 hover:bg-slate-800'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
+            <div className="flex flex-wrap items-center gap-3">
+              <select
+                value={selectedBroker}
+                onChange={(e) => setSelectedBroker(e.target.value as any)}
+                className="border rounded-xl px-3 py-2 text-xs font-bold bg-transparent"
               >
-                {b}
-              </button>
-            ))}
-          </div>
-        </div>
+                <option value="Avanza">Avanza</option>
+                <option value="Zerodha">Zerodha</option>
+              </select>
 
-        <div className="grid md:grid-cols-2 gap-6 items-start">
-          <BrokerGuide broker={activeBroker} theme={theme} />
-
-          <div className={`p-6 rounded-2xl border space-y-4 ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-            <h4 className="font-bold text-xs uppercase tracking-wider opacity-80">Upload {activeBroker} Statement</h4>
-
-            <div className="space-y-3">
+              <label
+                htmlFor="broker-file-upload"
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs cursor-pointer shadow-md transition"
+              >
+                <Upload className="w-4 h-4" />
+                <span>Upload File</span>
+              </label>
               <input
                 type="file"
-                accept=".csv,.txt"
-                onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
-                className={`w-full text-xs file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:cursor-pointer transition ${
-                  isDark
-                    ? 'text-slate-400 file:bg-indigo-600 file:text-white hover:file:bg-indigo-500'
-                    : 'text-slate-600 file:bg-indigo-600 file:text-white hover:file:bg-indigo-500'
-                }`}
+                accept=".csv, .xlsx, .xls, text/csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    onCsvImport(file, selectedBroker);
+                    e.target.value = '';
+                  }
+                }}
+                className="hidden"
+                id="broker-file-upload"
               />
 
-              <div className="flex flex-col sm:flex-row gap-2 pt-2">
-                <button
-                  type="button"
-                  disabled={!selectedFile}
-                  onClick={() => {
-                    if (selectedFile) {
-                      onCsvImport(selectedFile, activeBroker);
-                      setSelectedFile(null);
-                    }
-                  }}
-                  className="flex-1 py-3 rounded-xl font-bold text-xs bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white shadow flex items-center justify-center gap-1.5 transition"
-                >
-                  <Upload className="w-4 h-4" /> Import & Replay Ledger
-                </button>
-
-                {/* Explicit Clear Broker History Button */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    const brokerLabel = activeBroker === 'AVANZA' ? 'Avanza' : activeBroker === 'NORDNET' ? 'Nordnet' : activeBroker;
-                    if (confirm(`Clear all transaction history and holdings for ${brokerLabel}?\n\nThis will permanently remove all stored trades for this broker from your vault so you can start fresh.`)) {
-                      onClearBroker(brokerLabel);
-                    }
-                  }}
-                  className={`px-4 py-3 rounded-xl text-xs font-semibold border flex items-center justify-center gap-1.5 transition ${
-                    isDark ? 'bg-rose-500/10 border-rose-500/30 text-rose-400 hover:bg-rose-500/20' : 'bg-rose-50 border-rose-200 text-rose-600 hover:bg-rose-100'
-                  }`}
-                  title={`Permanently delete all stored transactions & holdings for ${activeBroker}`}
-                >
-                  <Trash2 className="w-4 h-4" /> Clear {activeBroker} History
-                </button>
-              </div>
-            </div>
-
-            <p className="text-[10px] opacity-60 leading-relaxed">
-              <b>Smart Ledger:</b> Netto safely deduplicates rows using occurrence fingerprint hashes. You can upload overlapping date ranges or incremental monthly exports without duplicating trades.
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* Section 2: Fixed Deposits & Savings */}
-      <div className={`border p-6 rounded-3xl space-y-6 shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
-        <div className="flex items-center gap-2.5 border-b pb-4 border-slate-800/40">
-          <div className="p-2.5 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-            <Coins className="w-5 h-5" />
-          </div>
-          <div>
-            <h3 className="font-bold text-sm">Fixed Deposits & Savings Accounts</h3>
-            <p className="text-[11px] opacity-60">Track principal amounts, compound interest rates, and maturity timelines.</p>
-          </div>
-        </div>
-
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            onAddFD({
-              broker: fdBroker,
-              symbol: fdName.toLowerCase().replace(/\s+/g, '_'),
-              name: fdName,
-              currency: fdCurrency,
-              principal: parseFloat(fdPrincipal) || 0,
-              interest_rate: parseFloat(fdRate) || 0,
-              compounding_freq: 4,
-              start_date: fdStart,
-              maturity_date: fdMaturity,
-            });
-          }}
-          className="grid md:grid-cols-4 gap-4 text-xs"
-        >
-          <div>
-            <label className="block opacity-70 mb-1">Bank / Institution</label>
-            <input
-              type="text"
-              value={fdBroker}
-              onChange={(e) => setFdBroker(e.target.value)}
-              className={`w-full p-2.5 rounded-xl border ${isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-white border-slate-300'}`}
-              required
-            />
-          </div>
-          <div>
-            <label className="block opacity-70 mb-1">Deposit Name</label>
-            <input
-              type="text"
-              value={fdName}
-              onChange={(e) => setFdName(e.target.value)}
-              className={`w-full p-2.5 rounded-xl border ${isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-white border-slate-300'}`}
-              required
-            />
-          </div>
-          <div>
-            <label className="block opacity-70 mb-1">Principal Amount</label>
-            <input
-              type="number"
-              value={fdPrincipal}
-              onChange={(e) => setFdPrincipal(e.target.value)}
-              className={`w-full p-2.5 rounded-xl border ${isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-white border-slate-300'}`}
-              required
-            />
-          </div>
-          <div>
-            <label className="block opacity-70 mb-1">Currency</label>
-            <select
-              value={fdCurrency}
-              onChange={(e) => setFdCurrency(e.target.value as CurrencyCode)}
-              className={`w-full p-2.5 rounded-xl border ${isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-white border-slate-300'}`}
-            >
-              <option value="SEK">SEK</option>
-              <option value="INR">INR</option>
-              <option value="USD">USD</option>
-              <option value="EUR">EUR</option>
-            </select>
-          </div>
-          <div>
-            <label className="block opacity-70 mb-1">Interest Rate (%)</label>
-            <input
-              type="number"
-              step="0.01"
-              value={fdRate}
-              onChange={(e) => setFdRate(e.target.value)}
-              className={`w-full p-2.5 rounded-xl border ${isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-white border-slate-300'}`}
-              required
-            />
-          </div>
-          <div>
-            <label className="block opacity-70 mb-1">Start Date</label>
-            <input
-              type="date"
-              value={fdStart}
-              onChange={(e) => setFdStart(e.target.value)}
-              className={`w-full p-2.5 rounded-xl border ${isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-white border-slate-300'}`}
-              required
-            />
-          </div>
-          <div>
-            <label className="block opacity-70 mb-1">Maturity Date</label>
-            <input
-              type="date"
-              value={fdMaturity}
-              onChange={(e) => setFdMaturity(e.target.value)}
-              className={`w-full p-2.5 rounded-xl border ${isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-white border-slate-300'}`}
-            />
-          </div>
-          <div className="flex items-end">
-            <button
-              type="submit"
-              className="w-full py-2.5 rounded-xl font-bold text-xs bg-indigo-600 hover:bg-indigo-500 text-white shadow flex items-center justify-center gap-1.5 transition"
-            >
-              <PlusCircle className="w-4 h-4" /> Save Fixed Deposit
-            </button>
-          </div>
-        </form>
-      </div>
-
-      {/* Section 3: Real Estate & Properties */}
-      <div className={`border p-6 rounded-3xl space-y-6 shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
-        <div className="flex items-center gap-2.5 border-b pb-4 border-slate-800/40">
-          <div className="p-2.5 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20">
-            <Building2 className="w-5 h-5" />
-          </div>
-          <div>
-            <h3 className="font-bold text-sm">Real Estate & Properties</h3>
-            <p className="text-[11px] opacity-60">Track apartments, houses, land, and current market valuations.</p>
-          </div>
-        </div>
-
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            onAddProperty({
-              name: propName,
-              property_type: propType,
-              currency: propCurr,
-              buy_price: parseFloat(propBuyPrice) || 0,
-              buy_month: parseInt(propBuyMonth, 10) || 1,
-              buy_year: parseInt(propBuyYear, 10) || 2020,
-              current_price: parseFloat(propCurrVal) || 0,
-            });
-          }}
-          className="grid md:grid-cols-4 gap-4 text-xs"
-        >
-          <div>
-            <label className="block opacity-70 mb-1">Property Name</label>
-            <input
-              type="text"
-              value={propName}
-              onChange={(e) => setPropName(e.target.value)}
-              className={`w-full p-2.5 rounded-xl border ${isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-white border-slate-300'}`}
-              required
-            />
-          </div>
-          <div>
-            <label className="block opacity-70 mb-1">Property Type</label>
-            <select
-              value={propType}
-              onChange={(e) => setPropType(e.target.value as PropertyType)}
-              className={`w-full p-2.5 rounded-xl border ${isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-white border-slate-300'}`}
-            >
-              <option value="APARTMENT">Apartment</option>
-              <option value="HOUSE">House</option>
-              <option value="LAND">Land</option>
-              <option value="COMMERCIAL">Commercial</option>
-            </select>
-          </div>
-          <div>
-            <label className="block opacity-70 mb-1">Acquisition Buy Price</label>
-            <input
-              type="number"
-              value={propBuyPrice}
-              onChange={(e) => setPropBuyPrice(e.target.value)}
-              className={`w-full p-2.5 rounded-xl border ${isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-white border-slate-300'}`}
-              required
-            />
-          </div>
-          <div>
-            <label className="block opacity-70 mb-1">Current Valuation</label>
-            <input
-              type="number"
-              value={propCurrVal}
-              onChange={(e) => setPropCurrVal(e.target.value)}
-              className={`w-full p-2.5 rounded-xl border ${isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-white border-slate-300'}`}
-              required
-            />
-          </div>
-          <div>
-            <label className="block opacity-70 mb-1">Buy Month (1-12)</label>
-            <input
-              type="number"
-              min="1"
-              max="12"
-              value={propBuyMonth}
-              onChange={(e) => setPropBuyMonth(e.target.value)}
-              className={`w-full p-2.5 rounded-xl border ${isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-white border-slate-300'}`}
-              required
-            />
-          </div>
-          <div>
-            <label className="block opacity-70 mb-1">Buy Year</label>
-            <input
-              type="number"
-              value={propBuyYear}
-              onChange={(e) => setPropBuyYear(e.target.value)}
-              className={`w-full p-2.5 rounded-xl border ${isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-white border-slate-300'}`}
-              required
-            />
-          </div>
-          <div>
-            <label className="block opacity-70 mb-1">Currency</label>
-            <select
-              value={propCurr}
-              onChange={(e) => setPropCurr(e.target.value as CurrencyCode)}
-              className={`w-full p-2.5 rounded-xl border ${isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-white border-slate-300'}`}
-            >
-              <option value="SEK">SEK</option>
-              <option value="INR">INR</option>
-              <option value="USD">USD</option>
-              <option value="EUR">EUR</option>
-            </select>
-          </div>
-          <div className="flex items-end">
-            <button
-              type="submit"
-              className="w-full py-2.5 rounded-xl font-bold text-xs bg-amber-600 hover:bg-amber-500 text-white shadow flex items-center justify-center gap-1.5 transition"
-            >
-              <PlusCircle className="w-4 h-4" /> Save Property
-            </button>
-          </div>
-        </form>
-
-        {properties.length > 0 && (
-          <div className="pt-4 border-t border-slate-800/40 space-y-2">
-            <h4 className="font-bold text-xs opacity-70">Saved Properties</h4>
-            <div className="space-y-2">
-              {properties.map((p) => (
-                <div key={p.id} className={`p-3 rounded-xl border flex justify-between items-center text-xs ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-                  <div>
-                    <span className="font-bold">{p.name}</span>
-                    <span className="opacity-60 text-[10px] ml-2">({p.property_type} • bought {p.buy_month}/{p.buy_year})</span>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <span className="font-bold text-emerald-400">{p.current_price.toLocaleString()} {p.currency}</span>
-                    <button onClick={() => onDeleteProperty(p.id)} className="text-rose-400 hover:text-rose-300 p-1">
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              ))}
+              <button
+                onClick={() => {
+                  if (confirm(`Wipe all imported transactions and holdings for ${selectedBroker}?`)) {
+                    onClearBroker(selectedBroker);
+                  }
+                }}
+                className="p-2 border border-rose-500/30 text-rose-400 hover:bg-rose-500/10 rounded-xl text-xs font-semibold transition"
+                title={`Clear ${selectedBroker} Ledger`}
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
             </div>
           </div>
-        )}
-      </div>
 
-      {/* Section 4: Liabilities & Loans */}
-      <div className={`border p-6 rounded-3xl space-y-6 shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
-        <div className="flex items-center gap-2.5 border-b pb-4 border-slate-800/40">
-          <div className="p-2.5 rounded-xl bg-rose-500/10 text-rose-400 border border-rose-500/20">
-            <CreditCard className="w-5 h-5" />
-          </div>
-          <div>
-            <h3 className="font-bold text-sm">Liabilities & Outstanding Loans</h3>
-            <p className="text-[11px] opacity-60">Track mortgages, car loans, personal loans, and credit balances.</p>
-          </div>
-        </div>
-
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            onAddLiability({
-              name: liabName,
-              liability_type: liabType,
-              currency: liabCurr,
-              total_loan: parseFloat(liabTotal) || 0,
-              remaining_balance: parseFloat(liabRem) || 0,
-              interest_rate: parseFloat(liabRate) || 0,
-            });
-          }}
-          className="grid md:grid-cols-4 gap-4 text-xs"
-        >
-          <div>
-            <label className="block opacity-70 mb-1">Loan Name</label>
-            <input
-              type="text"
-              value={liabName}
-              onChange={(e) => setLiabName(e.target.value)}
-              className={`w-full p-2.5 rounded-xl border ${isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-white border-slate-300'}`}
-              required
-            />
-          </div>
-          <div>
-            <label className="block opacity-70 mb-1">Loan Type</label>
-            <select
-              value={liabType}
-              onChange={(e) => setLiabType(e.target.value as LiabilityType)}
-              className={`w-full p-2.5 rounded-xl border ${isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-white border-slate-300'}`}
-            >
-              <option value="MORTGAGE">Mortgage</option>
-              <option value="CAR_LOAN">Car Loan</option>
-              <option value="PERSONAL_LOAN">Personal Loan</option>
-              <option value="CREDIT_CARD">Credit Card</option>
-            </select>
-          </div>
-          <div>
-            <label className="block opacity-70 mb-1">Original Total Loan</label>
-            <input
-              type="number"
-              value={liabTotal}
-              onChange={(e) => setLiabTotal(e.target.value)}
-              className={`w-full p-2.5 rounded-xl border ${isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-white border-slate-300'}`}
-              required
-            />
-          </div>
-          <div>
-            <label className="block opacity-70 mb-1">Remaining Balance</label>
-            <input
-              type="number"
-              value={liabRem}
-              onChange={(e) => setLiabRem(e.target.value)}
-              className={`w-full p-2.5 rounded-xl border ${isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-white border-slate-300'}`}
-              required
-            />
-          </div>
-          <div>
-            <label className="block opacity-70 mb-1">Interest Rate (%)</label>
-            <input
-              type="number"
-              step="0.01"
-              value={liabRate}
-              onChange={(e) => setLiabRate(e.target.value)}
-              className={`w-full p-2.5 rounded-xl border ${isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-white border-slate-300'}`}
-              required
-            />
-          </div>
-          <div>
-            <label className="block opacity-70 mb-1">Currency</label>
-            <select
-              value={liabCurr}
-              onChange={(e) => setLiabCurr(e.target.value as CurrencyCode)}
-              className={`w-full p-2.5 rounded-xl border ${isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-white border-slate-300'}`}
-            >
-              <option value="SEK">SEK</option>
-              <option value="INR">INR</option>
-              <option value="USD">USD</option>
-              <option value="EUR">EUR</option>
-            </select>
-          </div>
-          <div className="md:col-span-2 flex items-end">
-            <button
-              type="submit"
-              className="w-full py-2.5 rounded-xl font-bold text-xs bg-rose-600 hover:bg-rose-500 text-white shadow flex items-center justify-center gap-1.5 transition"
-            >
-              <PlusCircle className="w-4 h-4" /> Save Liability / Loan
-            </button>
-          </div>
-        </form>
-
-        {liabilities.length > 0 && (
-          <div className="pt-4 border-t border-slate-800/40 space-y-2">
-            <h4 className="font-bold text-xs opacity-70">Saved Liabilities</h4>
-            <div className="space-y-2">
-              {liabilities.map((l) => (
-                <div key={l.id} className={`p-3 rounded-xl border flex justify-between items-center text-xs ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-                  <div>
-                    <span className="font-bold">{l.name}</span>
-                    <span className="opacity-60 text-[10px] ml-2">({l.liability_type} • {l.interest_rate}% interest)</span>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <span className="font-bold text-rose-400">{l.remaining_balance.toLocaleString()} {l.currency}</span>
-                    <button onClick={() => onDeleteLiability(l.id)} className="text-rose-400 hover:text-rose-300 p-1">
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Section 5: Active Holdings List & Individual Deletion */}
-      <div className={`border p-6 rounded-3xl space-y-4 shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
-        <div className="flex justify-between items-center border-b pb-4 border-slate-800/40">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2.5 rounded-xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
-              <ShieldCheck className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="font-bold text-sm">Active Vault Holdings ({holdings.length})</h3>
-              <p className="text-[11px] opacity-60">Manage or delete individual holdings stored in SQLite.</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead className={`border-b uppercase tracking-wider ${isDark ? 'bg-slate-950/80 border-slate-800 text-slate-400' : 'bg-slate-100 border-slate-200 text-slate-600'}`}>
-              <tr>
-                <th className="p-3">Broker</th>
-                <th className="p-3">Asset Name</th>
-                <th className="p-3">Category</th>
-                <th className="p-3">Quantity / Principal</th>
-                <th className="p-3">Currency</th>
-                <th className="p-3 text-right">Action</th>
-              </tr>
-            </thead>
-            <tbody className={`divide-y ${isDark ? 'divide-slate-800/70' : 'divide-slate-200'}`}>
-              {holdings.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="p-8 text-center opacity-60">
-                    No holdings recorded. Import a CSV or add an asset above.
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-slate-800/40 opacity-70">
+                  <th className="pb-3">Broker</th>
+                  <th className="pb-3">Asset / Name</th>
+                  <th className="pb-3">ISIN</th>
+                  <th className="pb-3 text-right">Quantity</th>
+                  <th className="pb-3 text-right">Avg Purchase Price</th>
+                  <th className="pb-3 text-right">Current Market Price</th>
+                  <th className="pb-3 text-right">Actions</th>
                 </tr>
-              ) : (
-                holdings.map((h) => {
-                  const isFD = h.category === 'FIXED_DEPOSIT';
-                  return (
-                    <tr key={h.id} className={isDark ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}>
-                      <td className="p-3 font-semibold">{h.broker}</td>
-                      <td className="p-3">
-                        <span className="font-bold block">{h.name}</span>
-                        <span className="opacity-50 text-[10px] font-mono">{h.symbol}</span>
+              </thead>
+              <tbody className="divide-y divide-slate-800/20">
+                {equityHoldings.map((h) => (
+                  <tr key={h.id} className="hover:bg-slate-800/10 transition">
+                    <td className="py-3 font-bold">{h.broker}</td>
+                    <td className="py-3">
+                      <div className="font-semibold">{h.name}</div>
+                      <div className="text-[10px] opacity-60 font-mono">{h.symbol}</div>
+                    </td>
+                    <td className="py-3 font-mono text-[10px] opacity-75">{h.isin || '-'}</td>
+                    <td className="py-3 text-right font-medium">{h.quantity}</td>
+                    <td className="py-3 text-right font-mono">
+                      {h.avg_price.toFixed(2)} {h.currency}
+                    </td>
+                    <td className="py-3 text-right font-mono">
+                      {h.market_price > 0 ? `${h.market_price.toFixed(2)} ${h.currency}` : '-'}
+                    </td>
+                    <td className="py-3 text-right">
+                      <button
+                        onClick={() => onDeleteHolding(h.id)}
+                        className="text-rose-400 hover:text-rose-300 p-1 rounded-lg hover:bg-rose-500/10 transition"
+                        title="Delete Asset"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {equityHoldings.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="text-center py-8 opacity-60 text-xs">
+                      No equity holdings found. Upload a report from Avanza or Zerodha.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* 2. Fixed Deposits Form & Table */}
+      {activeFormTab === 'FD' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div
+            className={`p-6 rounded-3xl border shadow-sm ${
+              isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+            }`}
+          >
+            <div className="flex items-center gap-2 mb-4">
+              <Landmark className="w-4 h-4 text-emerald-400" />
+              <h3 className="text-sm font-bold">New Fixed Deposit</h3>
+            </div>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                onAddFD({
+                  ...fdForm,
+                  symbol: `FD_${Date.now()}`,
+                });
+                setFdForm({ ...fdForm, name: '', principal: 0 });
+              }}
+              className="space-y-3 text-xs"
+            >
+              <div>
+                <label className="block mb-1 opacity-70">Deposit / Bank Name</label>
+                <input
+                  type="text"
+                  required
+                  value={fdForm.name}
+                  onChange={(e) => setFdForm({ ...fdForm, name: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl border bg-transparent"
+                  placeholder="e.g. SBAB Fasträntekonto 1Y"
+                />
+              </div>
+
+              <div>
+                <label className="block mb-1 opacity-70">Institution / Broker</label>
+                <input
+                  type="text"
+                  required
+                  value={fdForm.broker}
+                  onChange={(e) => setFdForm({ ...fdForm, broker: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl border bg-transparent"
+                  placeholder="e.g. SBAB, HDFC Bank"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block mb-1 opacity-70">Currency</label>
+                  <select
+                    value={fdForm.currency}
+                    onChange={(e) => setFdForm({ ...fdForm, currency: e.target.value as any })}
+                    className="w-full px-3 py-2 rounded-xl border bg-transparent"
+                  >
+                    <option value="SEK">SEK</option>
+                    <option value="INR">INR</option>
+                    <option value="USD">USD</option>
+                    <option value="EUR">EUR</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block mb-1 opacity-70">Principal</label>
+                  <input
+                    type="number"
+                    required
+                    value={fdForm.principal || ''}
+                    onChange={(e) => setFdForm({ ...fdForm, principal: parseFloat(e.target.value) || 0 })}
+                    className="w-full px-3 py-2 rounded-xl border bg-transparent"
+                    placeholder="50000"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block mb-1 opacity-70">Interest Rate (%)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={fdForm.interest_rate}
+                    onChange={(e) =>
+                      setFdForm({ ...fdForm, interest_rate: parseFloat(e.target.value) || 0 })
+                    }
+                    className="w-full px-3 py-2 rounded-xl border bg-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="block mb-1 opacity-70">Compounding</label>
+                  <select
+                    value={fdForm.compounding_freq}
+                    onChange={(e) => setFdForm({ ...fdForm, compounding_freq: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl border bg-transparent"
+                  >
+                    <option value="ANNUAL">Annual</option>
+                    <option value="SEMI_ANNUAL">Semi-Annual</option>
+                    <option value="QUARTERLY">Quarterly</option>
+                    <option value="MONTHLY">Monthly</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block mb-1 opacity-70">Start Date</label>
+                  <input
+                    type="date"
+                    value={fdForm.start_date}
+                    onChange={(e) => setFdForm({ ...fdForm, start_date: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl border bg-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="block mb-1 opacity-70">Maturity Date</label>
+                  <input
+                    type="date"
+                    value={fdForm.maturity_date}
+                    onChange={(e) => setFdForm({ ...fdForm, maturity_date: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl border bg-transparent"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold transition flex items-center justify-center gap-1.5 shadow"
+              >
+                <Plus className="w-3.5 h-3.5" /> Save Deposit
+              </button>
+            </form>
+          </div>
+
+          <div
+            className={`lg:col-span-2 p-6 rounded-3xl border shadow-sm ${
+              isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+            }`}
+          >
+            <h3 className="text-sm font-bold mb-4">Active Fixed Deposits</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-slate-800/40 opacity-70">
+                    <th className="pb-2">Institution</th>
+                    <th className="pb-2">Deposit Name</th>
+                    <th className="pb-2 text-right">Principal</th>
+                    <th className="pb-2 text-right">Interest</th>
+                    <th className="pb-2 text-right">Maturity</th>
+                    <th className="pb-2 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/20">
+                  {fdHoldings.map((fd) => (
+                    <tr key={fd.id} className="hover:bg-slate-800/10 transition">
+                      <td className="py-3 font-semibold">{fd.broker}</td>
+                      <td className="py-3">{fd.name}</td>
+                      <td className="py-3 text-right font-mono font-medium">
+                        {fd.principal?.toLocaleString()} {fd.currency}
                       </td>
-                      <td className="p-3">
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${isFD ? 'bg-emerald-500/15 text-emerald-400' : 'bg-indigo-500/15 text-indigo-400'}`}>
-                          {h.category}
-                        </span>
+                      <td className="py-3 text-right font-mono text-emerald-400">
+                        {fd.interest_rate}% ({fd.compounding_freq})
                       </td>
-                      <td className="p-3 opacity-90">{isFD ? h.principal.toLocaleString() : h.quantity.toLocaleString()}</td>
-                      <td className="p-3 font-mono">{h.currency}</td>
-                      <td className="p-3 text-right">
+                      <td className="py-3 text-right font-mono opacity-80">{fd.maturity_date || '-'}</td>
+                      <td className="py-3 text-right">
                         <button
-                          onClick={() => onDeleteHolding(h.id)}
-                          className="p-1.5 rounded-lg text-rose-400 hover:bg-rose-500/10 transition"
-                          title="Delete holding"
+                          onClick={() => onDeleteHolding(fd.id)}
+                          className="text-rose-400 hover:text-rose-300 p-1"
                         >
-                          <Trash2 className="w-4 h-4" />
+                          <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </td>
                     </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+                  ))}
+                  {fdHoldings.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="text-center py-8 opacity-60">
+                        No fixed deposits recorded.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* 3. Real Estate / Properties Form & Table */}
+      {activeFormTab === 'PROPERTY' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div
+            className={`p-6 rounded-3xl border shadow-sm ${
+              isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+            }`}
+          >
+            <div className="flex items-center gap-2 mb-4">
+              <Building className="w-4 h-4 text-sky-400" />
+              <h3 className="text-sm font-bold">Add Property / Estate</h3>
+            </div>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                onAddProperty(propForm);
+                setPropForm({ ...propForm, name: '', buy_price: 0, current_price: 0 });
+              }}
+              className="space-y-3 text-xs"
+            >
+              <div>
+                <label className="block mb-1 opacity-70">Property Label</label>
+                <input
+                  type="text"
+                  required
+                  value={propForm.name}
+                  onChange={(e) => setPropForm({ ...propForm, name: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl border bg-transparent"
+                  placeholder="e.g. Solna Apartment"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block mb-1 opacity-70">Type</label>
+                  <select
+                    value={propForm.property_type}
+                    onChange={(e) => setPropForm({ ...propForm, property_type: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl border bg-transparent"
+                  >
+                    <option value="Apartment">Apartment</option>
+                    <option value="House / Villa">House / Villa</option>
+                    <option value="Plot / Land">Plot / Land</option>
+                    <option value="Commercial">Commercial</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block mb-1 opacity-70">Currency</label>
+                  <select
+                    value={propForm.currency}
+                    onChange={(e) => setPropForm({ ...propForm, currency: e.target.value as any })}
+                    className="w-full px-3 py-2 rounded-xl border bg-transparent"
+                  >
+                    <option value="SEK">SEK</option>
+                    <option value="INR">INR</option>
+                    <option value="EUR">EUR</option>
+                    <option value="USD">USD</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block mb-1 opacity-70">Buy Month</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="12"
+                    value={propForm.buy_month}
+                    onChange={(e) =>
+                      setPropForm({ ...propForm, buy_month: parseInt(e.target.value, 10) || 1 })
+                    }
+                    className="w-full px-3 py-2 rounded-xl border bg-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="block mb-1 opacity-70">Buy Year</label>
+                  <input
+                    type="number"
+                    min="1950"
+                    max="2100"
+                    value={propForm.buy_year}
+                    onChange={(e) =>
+                      setPropForm({ ...propForm, buy_year: parseInt(e.target.value, 10) || 2026 })
+                    }
+                    className="w-full px-3 py-2 rounded-xl border bg-transparent"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block mb-1 opacity-70">Purchase Cost</label>
+                  <input
+                    type="number"
+                    required
+                    value={propForm.buy_price || ''}
+                    onChange={(e) =>
+                      setPropForm({ ...propForm, buy_price: parseFloat(e.target.value) || 0 })
+                    }
+                    className="w-full px-3 py-2 rounded-xl border bg-transparent"
+                    placeholder="3000000"
+                  />
+                </div>
+                <div>
+                  <label className="block mb-1 opacity-70">Current Value</label>
+                  <input
+                    type="number"
+                    required
+                    value={propForm.current_price || ''}
+                    onChange={(e) =>
+                      setPropForm({ ...propForm, current_price: parseFloat(e.target.value) || 0 })
+                    }
+                    className="w-full px-3 py-2 rounded-xl border bg-transparent"
+                    placeholder="3500000"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                className="w-full py-2.5 bg-sky-600 hover:bg-sky-500 text-white rounded-xl font-bold transition flex items-center justify-center gap-1.5 shadow"
+              >
+                <Plus className="w-3.5 h-3.5" /> Save Property
+              </button>
+            </form>
+          </div>
+
+          <div
+            className={`lg:col-span-2 p-6 rounded-3xl border shadow-sm ${
+              isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+            }`}
+          >
+            <h3 className="text-sm font-bold mb-4">Real Estate Ledger</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-slate-800/40 opacity-70">
+                    <th className="pb-2">Property</th>
+                    <th className="pb-2">Type</th>
+                    <th className="pb-2">Acquired</th>
+                    <th className="pb-2 text-right">Purchase Cost</th>
+                    <th className="pb-2 text-right">Current Valuation</th>
+                    <th className="pb-2 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/20">
+                  {properties.map((p) => (
+                    <tr key={p.id} className="hover:bg-slate-800/10 transition">
+                      <td className="py-3 font-semibold">{p.name}</td>
+                      <td className="py-3 opacity-80">{p.property_type}</td>
+                      <td className="py-3 font-mono opacity-80">
+                        {p.buy_month}/{p.buy_year}
+                      </td>
+                      <td className="py-3 text-right font-mono">
+                        {p.buy_price.toLocaleString()} {p.currency}
+                      </td>
+                      <td className="py-3 text-right font-mono text-sky-400 font-bold">
+                        {p.current_price.toLocaleString()} {p.currency}
+                      </td>
+                      <td className="py-3 text-right">
+                        <button
+                          onClick={() => onDeleteProperty(p.id)}
+                          className="text-rose-400 hover:text-rose-300 p-1"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {properties.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="text-center py-8 opacity-60">
+                        No properties added yet.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 4. Liabilities / Loans Form & Table */}
+      {activeFormTab === 'LIABILITY' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div
+            className={`p-6 rounded-3xl border shadow-sm ${
+              isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+            }`}
+          >
+            <div className="flex items-center gap-2 mb-4">
+              <CreditCard className="w-4 h-4 text-rose-400" />
+              <h3 className="text-sm font-bold">Add Loan / Liability</h3>
+            </div>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                onAddLiability(liabForm);
+                setLiabForm({ ...liabForm, name: '', total_loan: 0, remaining_balance: 0 });
+              }}
+              className="space-y-3 text-xs"
+            >
+              <div>
+                <label className="block mb-1 opacity-70">Liability Description</label>
+                <input
+                  type="text"
+                  required
+                  value={liabForm.name}
+                  onChange={(e) => setLiabForm({ ...liabForm, name: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl border bg-transparent"
+                  placeholder="e.g. Nordea Apartment Mortgage"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block mb-1 opacity-70">Type</label>
+                  <select
+                    value={liabForm.liability_type}
+                    onChange={(e) => setLiabForm({ ...liabForm, liability_type: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl border bg-transparent"
+                  >
+                    <option value="Mortgage">Mortgage</option>
+                    <option value="Vehicle Loan">Vehicle Loan</option>
+                    <option value="Personal Loan">Personal Loan</option>
+                    <option value="Credit / Other">Credit / Other</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block mb-1 opacity-70">Currency</label>
+                  <select
+                    value={liabForm.currency}
+                    onChange={(e) => setLiabForm({ ...liabForm, currency: e.target.value as any })}
+                    className="w-full px-3 py-2 rounded-xl border bg-transparent"
+                  >
+                    <option value="SEK">SEK</option>
+                    <option value="INR">INR</option>
+                    <option value="EUR">EUR</option>
+                    <option value="USD">USD</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block mb-1 opacity-70">Original Principal</label>
+                  <input
+                    type="number"
+                    value={liabForm.total_loan || ''}
+                    onChange={(e) =>
+                      setLiabForm({ ...liabForm, total_loan: parseFloat(e.target.value) || 0 })
+                    }
+                    className="w-full px-3 py-2 rounded-xl border bg-transparent"
+                    placeholder="2500000"
+                  />
+                </div>
+                <div>
+                  <label className="block mb-1 opacity-70">Interest (%)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={liabForm.interest_rate}
+                    onChange={(e) =>
+                      setLiabForm({ ...liabForm, interest_rate: parseFloat(e.target.value) || 0 })
+                    }
+                    className="w-full px-3 py-2 rounded-xl border bg-transparent"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block mb-1 opacity-70">Remaining Principal Balance</label>
+                <input
+                  type="number"
+                  required
+                  value={liabForm.remaining_balance || ''}
+                  onChange={(e) =>
+                    setLiabForm({
+                      ...liabForm,
+                      remaining_balance: parseFloat(e.target.value) || 0,
+                    })
+                  }
+                  className="w-full px-3 py-2 rounded-xl border bg-transparent"
+                  placeholder="2100000"
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="w-full py-2.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl font-bold transition flex items-center justify-center gap-1.5 shadow"
+              >
+                <Plus className="w-3.5 h-3.5" /> Save Liability
+              </button>
+            </form>
+          </div>
+
+          <div
+            className={`lg:col-span-2 p-6 rounded-3xl border shadow-sm ${
+              isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+            }`}
+          >
+            <h3 className="text-sm font-bold mb-4">Current Liabilities</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-slate-800/40 opacity-70">
+                    <th className="pb-2">Description</th>
+                    <th className="pb-2">Type</th>
+                    <th className="pb-2 text-right">Interest Rate</th>
+                    <th className="pb-2 text-right">Remaining Principal</th>
+                    <th className="pb-2 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/20">
+                  {liabilities.map((l) => (
+                    <tr key={l.id} className="hover:bg-slate-800/10 transition">
+                      <td className="py-3 font-semibold">{l.name}</td>
+                      <td className="py-3 opacity-80">{l.liability_type}</td>
+                      <td className="py-3 text-right font-mono text-rose-400">
+                        {l.interest_rate}%
+                      </td>
+                      <td className="py-3 text-right font-mono font-bold text-rose-400">
+                        -{l.remaining_balance.toLocaleString()} {l.currency}
+                      </td>
+                      <td className="py-3 text-right">
+                        <button
+                          onClick={() => onDeleteLiability(l.id)}
+                          className="text-rose-400 hover:text-rose-300 p-1"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {liabilities.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="text-center py-8 opacity-60">
+                        No liabilities or debts recorded.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
