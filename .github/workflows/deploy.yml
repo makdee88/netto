@@ -1,13 +1,16 @@
 name: Deploy Netto
 
 on:
+  # Automatically build & deploy previews on feature branches or pull requests
   push:
-    branches:
+    branches-ignore:
       - main
-      - dev
   pull_request:
     branches:
       - main
+  
+  # Allow manual triggering for production deployment
+  workflow_dispatch:
 
 jobs:
   build-and-deploy:
@@ -38,5 +41,6 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           projectName: 'netto'
           directory: 'dist'
-          # Automatically names previews based on branch or PR, and main goes to production
-          branch: ${{ github.ref_name }}
+          # If triggered manually via workflow_dispatch, deploy to 'main' (Production).
+          # Otherwise, deploy as an automatic preview using the branch name.
+          branch: ${{ github.event_name == 'workflow_dispatch' && 'main' || github.ref_name }}
