@@ -1,131 +1,139 @@
-const getDriveFileName = (vaultName: string = 'Personal') => {
-  const safeName = vaultName.trim().replace(/[^a-zA-Z0-9_-]/g, '') || 'Personal';
-  return `netto_vault_${safeName}.sqlite.enc`;
-};
+const DRIVE_UPLOAD_URL = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
+const DRIVE_FILES_URL = 'https://www.googleapis.com/drive/v3/files';
 
 export async function syncToGoogleDrive(
   accessToken: string,
   encryptedBytes: Uint8Array,
-  vaultName: string = 'Personal'
+  vaultName: string
 ): Promise<string> {
-  const fileName = getDriveFileName(vaultName);
+  const fileName = `netto_vault_${vaultName}.sqlite.enc`;
 
-  const searchUrl = `https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=${encodeURIComponent(
-    `name = '${fileName}' and trashed = false`
-  )}&fields=files(id,name)`;
+  try {
+    // 1. Search if the file already exists in the private appDataFolder
+    const searchUrl = `${DRIVE_FILES_URL}?spaces=appDataFolder&q=name='${encodeURIComponent(
+      fileName
+    )}' and trashed=false&fields=files(id, name)`;
 
-  const searchRes = await fetch(searchUrl, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
+    const searchRes = await fetch(searchUrl, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
 
-  if (!searchRes.ok) {
-    throw new Error('Failed to search Google Drive appDataFolder.');
+    if (!searchRes.ok) {
+      const errBody = await searchRes.text();
+      throw new Error(`Drive lookup failed (${searchRes.status}): ${errBody}`);
+    }
+
+    const searchData = await searchRes.json();
+    const existingFile = searchData.files?.[0];
+
+    // 2. Prepare multipart body
+    const metadata = {
+      name: fileName,
+      parents: ['appDataFolder'],
+    };
+
+    const boundary = '-------netto_multipart_boundary_713130';
+    const delimiter = `\r\n--${boundary}\r\n`;
+    const closeDelimiter = `\r\n--${boundary}--`;
+
+    const metadataPart =
+      `Content-Type: application/json; charset=UTF-8\r\n\r\n` + JSON.stringify(metadata);
+
+    const encoder = new TextEncoder();
+    const metaBytes = encoder.encode(
+      delimiter + metadataPart + `\r\n--${boundary}\r\nContent-Type: application/octet-stream\r\n\r\n`
+    );
+    const closeBytes = encoder.encode(closeDelimiter);
+
+    const fullPayload = new Uint8Array(metaBytes.length + encryptedBytes.length + closeBytes.length);
+    fullPayload.set(metaBytes, 0);
+    fullPayload.set(encryptedBytes, metaBytes.length);
+    fullPayload.set(closeBytes, metaBytes.length + encryptedBytes.length);
+
+    let uploadRes: Response;
+
+    if (existingFile) {
+      // Direct media PATCH for existing file
+      uploadRes = await fetch(
+        `https://www.googleapis.com/upload/drive/v3/files/${existingFile.id}?uploadType=media`,
+        {
+          method: 'PATCH',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/octet-stream',
+          },
+          body: encryptedBytes,
+        }
+      );
+    } else {
+      // Multipart POST for new file
+      uploadRes = await fetch(DRIVE_UPLOAD_URL, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': `multipart/related; boundary=${boundary}`,
+        },
+        body: fullPayload,
+      });
+    }
+
+    if (!uploadRes.ok) {
+      const errText = await uploadRes.text();
+      throw new Error(`Drive upload failed (${uploadRes.status}): ${errText}`);
+    }
+
+    return `Synced [${fileName}] to Google Drive!`;
+  } catch (err: any) {
+    console.error('[Google Drive Sync Error]:', err);
+    throw err;
   }
-
-  const searchData = await searchRes.json();
-  const existingFileId = searchData.files?.[0]?.id;
-
-  const metadata = {
-    name: fileName,
-    ...(existingFileId ? {} : { parents: ['appDataFolder'] }),
-  };
-
-  const boundary = '-------netto_vault_sync_boundary';
-  const delimiter = `\r\n--${boundary}\r\n`;
-  const closeDelimiter = `\r\n--${boundary}--`;
-
-  const metadataPart =
-    delimiter +
-    'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
-    JSON.stringify(metadata);
-
-  const mediaHeader =
-    delimiter + 'Content-Type: application/octet-stream\r\n\r\n';
-
-  const encoder = new TextEncoder();
-  const metaBytes = encoder.encode(metadataPart);
-  const headerBytes = encoder.encode(mediaHeader);
-  const closeBytes = encoder.encode(closeDelimiter);
-
-  const body = new Uint8Array(
-    metaBytes.length + headerBytes.length + encryptedBytes.length + closeBytes.length
-  );
-  body.set(metaBytes, 0);
-  body.set(headerBytes, metaBytes.length);
-  body.set(encryptedBytes, metaBytes.length + headerBytes.length);
-  body.set(closeBytes, metaBytes.length + headerBytes.length + encryptedBytes.length);
-
-  const uploadUrl = existingFileId
-    ? `https://www.googleapis.com/upload/drive/v3/files/${existingFileId}?uploadType=multipart`
-    : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
-
-  const uploadRes = await fetch(uploadUrl, {
-    method: existingFileId ? 'PATCH' : 'POST',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': `multipart/related; boundary=${boundary}`,
-    },
-    body,
-  });
-
-  if (!uploadRes.ok) {
-    throw new Error(`Failed to upload ${fileName} to Google Drive.`);
-  }
-
-  return `Synced [${fileName}] to Google Drive`;
 }
 
 export async function loadFromGoogleDrive(
   accessToken: string,
-  vaultName: string = 'Personal'
+  vaultName: string
 ): Promise<Uint8Array | null> {
-  const fileName = getDriveFileName(vaultName);
+  const fileName = `netto_vault_${vaultName}.sqlite.enc`;
 
-  const searchUrl = `https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=${encodeURIComponent(
-    `name = '${fileName}' and trashed = false`
-  )}&fields=files(id,name,modifiedTime)&orderBy=modifiedTime desc`;
+  try {
+    const searchUrl = `${DRIVE_FILES_URL}?spaces=appDataFolder&q=name='${encodeURIComponent(
+      fileName
+    )}' and trashed=false&fields=files(id, name)`;
 
-  const searchRes = await fetch(searchUrl, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-
-  if (!searchRes.ok) {
-    throw new Error('Failed to query Google Drive.');
-  }
-
-  const searchData = await searchRes.json();
-  let fileId = searchData.files?.[0]?.id;
-
-  // Backward compatibility fallback: check for legacy single vault name
-  if (!fileId && vaultName === 'Personal') {
-    const legacyUrl = `https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=${encodeURIComponent(
-      `name = 'netto_vault.sqlite.enc' and trashed = false`
-    )}&fields=files(id,name)`;
-    const legacyRes = await fetch(legacyUrl, {
+    const searchRes = await fetch(searchUrl, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
-    if (legacyRes.ok) {
-      const legacyData = await legacyRes.json();
-      fileId = legacyData.files?.[0]?.id;
-    }
-  }
 
-  if (!fileId) {
-    alert(`No backup named "${fileName}" found in Google Drive.`);
+    if (!searchRes.ok) {
+      const errBody = await searchRes.text();
+      throw new Error(`Drive lookup failed (${searchRes.status}): ${errBody}`);
+    }
+
+    const searchData = await searchRes.json();
+    const existingFile = searchData.files?.[0];
+
+    if (!existingFile) {
+      alert(`No backup found on Google Drive for vault "${vaultName}" (looking for ${fileName})`);
+      return null;
+    }
+
+    const downloadRes = await fetch(
+      `${DRIVE_FILES_URL}/${existingFile.id}?alt=media`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }
+    );
+
+    if (!downloadRes.ok) {
+      const errBody = await downloadRes.text();
+      throw new Error(`Drive download failed (${downloadRes.status}): ${errBody}`);
+    }
+
+    const buffer = await downloadRes.arrayBuffer();
+    return new Uint8Array(buffer);
+  } catch (err: any) {
+    console.error('[Google Drive Load Error]:', err);
+    alert(`Failed to fetch from Drive: ${err?.message || err}`);
     return null;
   }
-
-  const downloadRes = await fetch(
-    `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
-    {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    }
-  );
-
-  if (!downloadRes.ok) {
-    throw new Error(`Failed to download ${fileName} from Google Drive.`);
-  }
-
-  const buffer = await downloadRes.arrayBuffer();
-  return new Uint8Array(buffer);
 }
