@@ -1,12 +1,10 @@
-// ==========================================
-// Netto Core Types & Interfaces
-// ==========================================
-
 export type CurrencyCode = 'SEK' | 'INR' | 'USD' | 'EUR';
+
+export type BrokerType = 'Avanza' | 'Zerodha' | 'Nordea' | 'Swedbank' | 'Other' | string;
 
 export type AuthMode = 'CREATE_OR_UNLOCK' | 'RESTORE_RETURNING';
 
-export type AssetCategory = 'EQUITY' | 'FIXED_DEPOSIT';
+export type AssetCategory = 'EQUITY' | 'FIXED_DEPOSIT' | string;
 
 export type PropertyType = 'Apartment' | 'House / Villa' | 'Plot / Land' | 'Commercial' | string;
 
@@ -14,46 +12,43 @@ export type LiabilityType = 'Mortgage' | 'Vehicle Loan' | 'Personal Loan' | 'Cre
 
 export type CompoundingFrequency = 'ANNUAL' | 'SEMI_ANNUAL' | 'QUARTERLY' | 'MONTHLY' | string;
 
-// --- Holdings & Portfolios ---
-
 export interface HoldingRow {
   id: number;
   broker: string;
   category: AssetCategory;
   symbol: string;
   name: string;
-  isin?: string;
+  isin: string;
   currency: CurrencyCode;
   quantity: number;
   avg_price: number;
   market_price: number;
-  principal?: number;
-  interest_rate?: number;
-  compounding_freq?: CompoundingFrequency;
-  start_date?: string;
-  maturity_date?: string;
+  principal: number;
+  interest_rate: number;
+  compounding_freq: string;
+  start_date: string;
+  maturity_date: string;
   created_at?: string;
   updated_at?: string;
 }
 
-// --- Transactions Ledger ---
-
 export interface TransactionRow {
   id: number;
   broker: string;
-  category: AssetCategory;
+  category?: AssetCategory;
   symbol: string;
   name: string;
   isin?: string;
   currency: CurrencyCode;
-  action: 'BUY' | 'SELL';
+  tx_type: 'BUY' | 'SELL' | 'DIVIDEND' | string;
+  tx_date: string;
   quantity: number;
   price: number;
-  trade_date: string;
+  amount: number;
+  action?: 'BUY' | 'SELL' | string;
+  trade_date?: string;
   created_at?: string;
 }
-
-// --- Real Estate / Properties ---
 
 export interface PropertyRow {
   id: number;
@@ -68,8 +63,6 @@ export interface PropertyRow {
   updated_at?: string;
 }
 
-// --- Liabilities & Debt ---
-
 export interface LiabilityRow {
   id: number;
   name: string;
@@ -82,8 +75,6 @@ export interface LiabilityRow {
   updated_at?: string;
 }
 
-// --- Net Worth Snapshots ---
-
 export interface SnapshotRow {
   id: number;
   timestamp: string;
@@ -91,8 +82,6 @@ export interface SnapshotRow {
   total_liabilities: number;
   net_worth: number;
 }
-
-// --- Import & Ingestion Results ---
 
 export interface CsvImportResult {
   broker: string;
@@ -102,15 +91,11 @@ export interface CsvImportResult {
   errors?: string[];
 }
 
-// --- Market Quotes & Exchange Rates ---
-
 export interface LiveMarketData {
   quotes: Record<string, number>;
   fxRates: Record<string, number>;
   updatedAt: string;
 }
-
-// --- Vault Metadata & Settings ---
 
 export interface VaultMetadata {
   vaultName: string;
@@ -118,8 +103,6 @@ export interface VaultMetadata {
   lastSyncedAt?: string;
   storageKey: string;
 }
-
-// --- Global Window Types (GIS / Google Identity Services) ---
 
 declare global {
   interface Window {

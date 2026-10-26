@@ -34,11 +34,10 @@ export async function parseZerodhaExcel(
   );
 
   const symIdx = rawHeaders.findIndex((h) => h.includes('symbol') || h.includes('scrip') || h.includes('instrument'));
-  const isinIdx = rawHeaders.findIndex((h) => h.includes('isin'));
   const typeIdx = rawHeaders.findIndex((h) => h.includes('trade type') || h.includes('type') || h.includes('action'));
-  const qtyIdx = rawHeaders.findIndex((h) => h.includes('quantity') || h.includes('qty'));
-  const priceIdx = rawHeaders.findIndex((h) => h.includes('price') || h.includes('avg. price') || h.includes('trade price'));
-  const dateIdx = rawHeaders.findIndex((h) => h.includes('date'));
+  const qtyIdx = rawHeaders.findIndex((h) => h.includes('quantity') || h.includes('qty') || h.includes('qty.'));
+  const priceIdx = rawHeaders.findIndex((h) => h.includes('price') || h.includes('avg. cost') || h.includes('avg. price'));
+  const dateIdx = rawHeaders.findIndex((h) => h.includes('date') || h.includes('trade_date'));
 
   const dataRows = rawRows.slice(headerIdx + 1);
 
@@ -53,24 +52,24 @@ export async function parseZerodhaExcel(
       if (!row || row.length === 0) continue;
 
       const symbol = String(row[symIdx] || '').trim().toUpperCase();
-      if (!symbol) continue;
+      if (!symbol || symbol === 'TOTAL') continue;
 
-      const isin = isinIdx !== -1 ? String(row[isinIdx] || '').trim() : '';
       const rawType = typeIdx !== -1 ? String(row[typeIdx] || '').trim().toUpperCase() : 'BUY';
-      const action = rawType.includes('SELL') ? 'SELL' : 'BUY';
+      const txType = rawType.includes('SELL') ? 'SELL' : 'BUY';
       const quantity = Math.abs(parseFloat(String(row[qtyIdx] || '0')));
       const price = parseFloat(String(row[priceIdx] || '0'));
+      const amount = quantity * price;
 
-      let tradeDate = new Date().toISOString().slice(0, 10);
+      let txDate = new Date().toISOString().slice(0, 10);
       if (dateIdx !== -1 && row[dateIdx]) {
         const val = row[dateIdx];
         if (typeof val === 'number') {
           const parsedDate = new Date(Math.round((val - 25569) * 86400 * 1000));
           if (!isNaN(parsedDate.getTime())) {
-            tradeDate = parsedDate.toISOString().slice(0, 10);
+            txDate = parsedDate.toISOString().slice(0, 10);
           }
         } else {
-          tradeDate = String(val).trim().slice(0, 10);
+          txDate = String(val).trim().slice(0, 10);
         }
       }
 
@@ -78,11 +77,10 @@ export async function parseZerodhaExcel(
         continue;
       }
 
-      // Check duplicate using type-safe db.exec
       const checkRes = db.exec(
         `SELECT id FROM transactions 
-         WHERE broker = 'Zerodha' AND symbol = ? AND trade_date = ? AND action = ? AND quantity = ? AND price = ?`,
-        [symbol, tradeDate, action, quantity, price]
+         WHERE broker = 'Zerodha' AND symbol = ? AND tx_date = ? AND tx_type = ? AND quantity = ? AND price = ?`,
+        [symbol, txDate, txType, quantity, price]
       );
 
       if (checkRes.length > 0 && checkRes[0].values.length > 0) {
@@ -91,9 +89,9 @@ export async function parseZerodhaExcel(
       }
 
       db.run(
-        `INSERT INTO transactions (broker, category, symbol, name, isin, currency, action, quantity, price, trade_date)
-         VALUES ('Zerodha', 'EQUITY', ?, ?, ?, 'INR', ?, ?, ?, ?)`,
-        [symbol, symbol, isin, action, quantity, price, tradeDate]
+        `INSERT INTO transactions (broker, symbol, name, tx_type, tx_date, quantity, price, amount, currency)
+         VALUES ('Zerodha', ?, ?, ?, ?, ?, ?, ?, 'INR')`,
+        [symbol, symbol, txType, txDate, quantity, price, amount]
       );
       newTxns++;
     }
@@ -104,13 +102,12 @@ export async function parseZerodhaExcel(
       SELECT 
         symbol,
         name,
-        isin,
         currency,
-        SUM(CASE WHEN action = 'BUY' THEN quantity ELSE -quantity END) as net_qty,
-        SUM(CASE WHEN action = 'BUY' THEN quantity * price ELSE 0 END) as total_cost,
-        SUM(CASE WHEN action = 'BUY' THEN quantity ELSE 0 END) as buy_qty
+        SUM(CASE WHEN tx_type = 'BUY' THEN quantity WHEN tx_type = 'SELL' THEN -quantity ELSE 0 END) as net_qty,
+        SUM(CASE WHEN tx_type = 'BUY' THEN quantity * price ELSE 0 END) as total_cost,
+        SUM(CASE WHEN tx_type = 'BUY' THEN quantity ELSE 0 END) as buy_qty
       FROM transactions
-      WHERE broker = 'Zerodha' AND category = 'EQUITY'
+      WHERE broker = 'Zerodha'
       GROUP BY symbol
     `);
 
@@ -121,9 +118,9 @@ export async function parseZerodhaExcel(
       if (h.net_qty > 0) {
         const avgPrice = h.buy_qty > 0 ? h.total_cost / h.buy_qty : 0;
         db.run(
-          `INSERT INTO holdings (broker, category, symbol, name, isin, currency, quantity, avg_price, market_price)
-           VALUES ('Zerodha', 'EQUITY', ?, ?, ?, 'INR', ?, ?, ?)`,
-          [h.symbol, h.name || h.symbol, h.isin || '', h.net_qty, avgPrice, avgPrice]
+          `INSERT INTO holdings (broker, category, symbol, name, currency, quantity, avg_price, market_price)
+           VALUES ('Zerodha', 'EQUITY', ?, ?, 'INR', ?, ?, ?)`,
+          [h.symbol, h.name || h.symbol, h.net_qty, avgPrice, avgPrice]
         );
         updatedHoldingsCount++;
       }

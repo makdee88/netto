@@ -67,31 +67,34 @@ export async function importBrokerCsv(
       const descIdx = headers.findIndex((h) => h.includes('värdepapper/beskrivning') || h.includes('beskrivning'));
       const qtyIdx = headers.findIndex((h) => h.includes('antal'));
       const priceIdx = headers.findIndex((h) => h.includes('kurs'));
+      const amtIdx = headers.findIndex((h) => h.includes('belopp'));
       const currIdx = headers.findIndex((h) => h.includes('valuta'));
-      const isinIdx = headers.findIndex((h) => h.includes('isin'));
 
       for (let i = 1; i < rows.length; i++) {
         const r = rows[i];
         if (!r || r.length < 3) continue;
 
         const rawType = (r[typeIdx] || '').toLowerCase();
-        if (!rawType.includes('köp') && !rawType.includes('sälj')) continue;
+        let txType = '';
+        if (rawType.includes('köp')) txType = 'BUY';
+        else if (rawType.includes('sälj')) txType = 'SELL';
+        else if (rawType.includes('utdelning')) txType = 'DIVIDEND';
+        else continue;
 
-        const action = rawType.includes('köp') ? 'BUY' : 'SELL';
-        const tradeDate = r[dateIdx] || new Date().toISOString().slice(0, 10);
+        const txDate = r[dateIdx] || new Date().toISOString().slice(0, 10);
         const name = r[descIdx] || 'Unknown';
         const symbol = name.toUpperCase();
         const quantity = Math.abs(normalizeNumber(r[qtyIdx]));
         const price = normalizeNumber(r[priceIdx]);
+        const amount = amtIdx !== -1 ? Math.abs(normalizeNumber(r[amtIdx])) : quantity * price;
         const currency = (r[currIdx] || 'SEK').toUpperCase();
-        const isin = isinIdx !== -1 ? r[isinIdx] : '';
 
-        if (quantity <= 0) continue;
+        if (quantity <= 0 && txType !== 'DIVIDEND') continue;
 
         const checkRes = db.exec(
           `SELECT id FROM transactions 
-           WHERE broker = 'Avanza' AND symbol = ? AND trade_date = ? AND action = ? AND quantity = ? AND price = ?`,
-          [symbol, tradeDate, action, quantity, price]
+           WHERE broker = 'Avanza' AND symbol = ? AND tx_date = ? AND tx_type = ? AND quantity = ? AND price = ?`,
+          [symbol, txDate, txType, quantity, price]
         );
 
         if (checkRes.length > 0 && checkRes[0].values.length > 0) {
@@ -100,9 +103,9 @@ export async function importBrokerCsv(
         }
 
         db.run(
-          `INSERT INTO transactions (broker, category, symbol, name, isin, currency, action, quantity, price, trade_date)
-           VALUES ('Avanza', 'EQUITY', ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [symbol, name, isin, currency, action, quantity, price, tradeDate]
+          `INSERT INTO transactions (broker, symbol, name, tx_type, tx_date, quantity, price, amount, currency)
+           VALUES ('Avanza', ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [symbol, name, txType, txDate, quantity, price, amount, currency]
         );
         newTxns++;
       }
@@ -111,12 +114,12 @@ export async function importBrokerCsv(
 
       const hStmt = db.prepare(`
         SELECT 
-          symbol, name, isin, currency,
-          SUM(CASE WHEN action = 'BUY' THEN quantity ELSE -quantity END) as net_qty,
-          SUM(CASE WHEN action = 'BUY' THEN quantity * price ELSE 0 END) as total_cost,
-          SUM(CASE WHEN action = 'BUY' THEN quantity ELSE 0 END) as buy_qty
+          symbol, name, currency,
+          SUM(CASE WHEN tx_type = 'BUY' THEN quantity WHEN tx_type = 'SELL' THEN -quantity ELSE 0 END) as net_qty,
+          SUM(CASE WHEN tx_type = 'BUY' THEN quantity * price ELSE 0 END) as total_cost,
+          SUM(CASE WHEN tx_type = 'BUY' THEN quantity ELSE 0 END) as buy_qty
         FROM transactions
-        WHERE broker = 'Avanza' AND category = 'EQUITY'
+        WHERE broker = 'Avanza'
         GROUP BY symbol
       `);
 
@@ -126,9 +129,9 @@ export async function importBrokerCsv(
         if (h.net_qty > 0) {
           const avgPrice = h.buy_qty > 0 ? h.total_cost / h.buy_qty : 0;
           db.run(
-            `INSERT INTO holdings (broker, category, symbol, name, isin, currency, quantity, avg_price, market_price)
-             VALUES ('Avanza', 'EQUITY', ?, ?, ?, ?, ?, ?, ?)`,
-            [h.symbol, h.name, h.isin, h.currency, h.net_qty, avgPrice, avgPrice]
+            `INSERT INTO holdings (broker, category, symbol, name, currency, quantity, avg_price, market_price)
+             VALUES ('Avanza', 'EQUITY', ?, ?, ?, ?, ?, ?)`,
+            [h.symbol, h.name, h.currency, h.net_qty, avgPrice, avgPrice]
           );
           updatedCount++;
         }
@@ -147,18 +150,17 @@ export async function importBrokerCsv(
       return;
     }
 
-    // Standard CSV fallback (e.g. Zerodha Tradebook CSV)
+    // Standard CSV fallback (Zerodha / Generic CSV)
     const delimiter = text.includes(';') ? ';' : ',';
     const rows = parseCsvLines(text, delimiter);
     if (rows.length < 2) throw new Error('CSV is empty or invalid.');
 
     const headers = rows[0].map((h) => h.toLowerCase());
-    const symIdx = headers.findIndex((h) => h.includes('symbol') || h.includes('scrip'));
+    const symIdx = headers.findIndex((h) => h.includes('symbol') || h.includes('scrip') || h.includes('instrument'));
     const typeIdx = headers.findIndex((h) => h.includes('type') || h.includes('action'));
     const qtyIdx = headers.findIndex((h) => h.includes('quantity') || h.includes('qty'));
-    const priceIdx = headers.findIndex((h) => h.includes('price'));
+    const priceIdx = headers.findIndex((h) => h.includes('price') || h.includes('avg. cost'));
     const dateIdx = headers.findIndex((h) => h.includes('date'));
-    const isinIdx = headers.findIndex((h) => h.includes('isin'));
 
     for (let i = 1; i < rows.length; i++) {
       const r = rows[i];
@@ -168,18 +170,18 @@ export async function importBrokerCsv(
       if (!symbol) continue;
 
       const rawType = (r[typeIdx] || 'BUY').toUpperCase();
-      const action = rawType.includes('SELL') ? 'SELL' : 'BUY';
+      const txType = rawType.includes('SELL') ? 'SELL' : 'BUY';
       const quantity = Math.abs(normalizeNumber(r[qtyIdx]));
       const price = normalizeNumber(r[priceIdx]);
-      const tradeDate = (r[dateIdx] || new Date().toISOString().slice(0, 10)).slice(0, 10);
-      const isin = isinIdx !== -1 ? r[isinIdx] : '';
+      const amount = quantity * price;
+      const txDate = (r[dateIdx] || new Date().toISOString().slice(0, 10)).slice(0, 10);
 
       if (quantity <= 0) continue;
 
       const checkRes = db.exec(
         `SELECT id FROM transactions 
-         WHERE broker = ? AND symbol = ? AND trade_date = ? AND action = ? AND quantity = ? AND price = ?`,
-        [broker, symbol, tradeDate, action, quantity, price]
+         WHERE broker = ? AND symbol = ? AND tx_date = ? AND tx_type = ? AND quantity = ? AND price = ?`,
+        [broker, symbol, txDate, txType, quantity, price]
       );
 
       if (checkRes.length > 0 && checkRes[0].values.length > 0) {
@@ -188,24 +190,24 @@ export async function importBrokerCsv(
       }
 
       db.run(
-        `INSERT INTO transactions (broker, category, symbol, name, isin, currency, action, quantity, price, trade_date)
-         VALUES (?, 'EQUITY', ?, ?, ?, 'INR', ?, ?, ?, ?)`,
-        [broker, symbol, symbol, isin, action, quantity, price, tradeDate]
+        `INSERT INTO transactions (broker, symbol, name, tx_type, tx_date, quantity, price, amount, currency)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'INR')`,
+        [broker, symbol, symbol, txType, txDate, quantity, price, amount]
       );
       newTxns++;
     }
 
     db.run(`DELETE FROM holdings WHERE broker = ? AND category = 'EQUITY'`, [broker]);
 
-    // Format query directly without bind parameters on Statement
+    const safeBroker = broker.replace(/'/g, "''");
     const hStmt = db.prepare(`
       SELECT 
-        symbol, name, isin, currency,
-        SUM(CASE WHEN action = 'BUY' THEN quantity ELSE -quantity END) as net_qty,
-        SUM(CASE WHEN action = 'BUY' THEN quantity * price ELSE 0 END) as total_cost,
-        SUM(CASE WHEN action = 'BUY' THEN quantity ELSE 0 END) as buy_qty
+        symbol, name, currency,
+        SUM(CASE WHEN tx_type = 'BUY' THEN quantity WHEN tx_type = 'SELL' THEN -quantity ELSE 0 END) as net_qty,
+        SUM(CASE WHEN tx_type = 'BUY' THEN quantity * price ELSE 0 END) as total_cost,
+        SUM(CASE WHEN tx_type = 'BUY' THEN quantity ELSE 0 END) as buy_qty
       FROM transactions
-      WHERE broker = '${broker.replace(/'/g, "''")}' AND category = 'EQUITY'
+      WHERE broker = '${safeBroker}'
       GROUP BY symbol
     `);
 
@@ -215,9 +217,9 @@ export async function importBrokerCsv(
       if (h.net_qty > 0) {
         const avgPrice = h.buy_qty > 0 ? h.total_cost / h.buy_qty : 0;
         db.run(
-          `INSERT INTO holdings (broker, category, symbol, name, isin, currency, quantity, avg_price, market_price)
-           VALUES (?, 'EQUITY', ?, ?, ?, ?, ?, ?, ?)`,
-          [broker, h.symbol, h.name, h.isin, h.currency || 'INR', h.net_qty, avgPrice, avgPrice]
+          `INSERT INTO holdings (broker, category, symbol, name, currency, quantity, avg_price, market_price)
+           VALUES (?, 'EQUITY', ?, ?, ?, ?, ?, ?)`,
+          [broker, h.symbol, h.name, h.currency || 'INR', h.net_qty, avgPrice, avgPrice]
         );
         updatedCount++;
       }
