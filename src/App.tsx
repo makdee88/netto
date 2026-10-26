@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Session } from '@supabase/supabase-js';
+import { Session, AuthChangeEvent } from '@supabase/supabase-js';
 import { supabase } from './supabase';
-import { VaultAuthScreen } from './components/VaultAuthScreen';
 import { ManageAssetsTab } from './components/ManageAssetsTab';
 
 export function App() {
@@ -11,22 +10,75 @@ export function App() {
   const [vaultPassword, setVaultPassword] = useState('');
   const [activeTab, setActiveTab] = useState<'overview' | 'manage-assets'>('overview');
 
+  // Auth Screen State
+  const [authStep, setAuthStep] = useState<'email' | 'otp'>('email');
+  const [email, setEmail] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [otpToken, setOtpToken] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setLoadingSession(false);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, currentSession) => {
-      setSession(currentSession);
-      if (!currentSession) {
-        setVaultUnlocked(false);
-        setVaultPassword('');
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (_event: AuthChangeEvent, currentSession: Session | null) => {
+        setSession(currentSession);
+        if (!currentSession) {
+          setVaultUnlocked(false);
+          setVaultPassword('');
+        }
       }
-    });
+    );
 
     return () => subscription.unsubscribe();
   }, []);
+
+  const handleSendOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthLoading(true);
+    setAuthError(null);
+
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: {
+        data: {
+          full_name: fullName,
+        },
+      },
+    });
+
+    setAuthLoading(false);
+
+    if (error) {
+      setAuthError(error.message);
+    } else {
+      setAuthStep('otp');
+    }
+  };
+
+  const handleVerifyOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthLoading(true);
+    setAuthError(null);
+
+    const { data, error } = await supabase.auth.verifyOtp({
+      email,
+      token: otpToken,
+      type: 'email',
+    });
+
+    setAuthLoading(false);
+
+    if (error) {
+      setAuthError(error.message);
+    } else if (data.session) {
+      setSession(data.session);
+    }
+  };
 
   if (loadingSession) {
     return (
@@ -36,10 +88,101 @@ export function App() {
     );
   }
 
+  // 1. Supabase OTP Authentication Checkpoint
   if (!session) {
-    return <VaultAuthScreen onAuthenticated={(_userId, _email) => {}} />;
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-slate-900 border border-slate-800 p-6 rounded-xl shadow-xl">
+          <h2 className="text-2xl font-bold mb-2">Netto Vault Access</h2>
+          <p className="text-sm text-slate-400 mb-6">
+            {authStep === 'email'
+              ? 'Enter your email to receive a verification code.'
+              : `Enter the verification code sent to ${email}.`}
+          </p>
+
+          {authError && (
+            <div className="mb-4 p-3 bg-red-950/50 border border-red-800 rounded text-red-200 text-sm">
+              {authError}
+            </div>
+          )}
+
+          {authStep === 'email' ? (
+            <form onSubmit={handleSendOtp} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">
+                  Full Name
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  placeholder="John Doe"
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded text-slate-100 focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">
+                  Email Address
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded text-slate-100 focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={authLoading}
+                className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 font-medium rounded transition disabled:opacity-50"
+              >
+                {authLoading ? 'Sending Code...' : 'Send Verification Code'}
+              </button>
+            </form>
+          ) : (
+            <form onSubmit={handleVerifyOtp} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">
+                  Verification Code
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={otpToken}
+                  onChange={(e) => setOtpToken(e.target.value)}
+                  placeholder="123456"
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded text-center text-xl tracking-widest text-slate-100 focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={authLoading}
+                className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 font-medium rounded transition disabled:opacity-50"
+              >
+                {authLoading ? 'Verifying...' : 'Verify & Unlock'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setAuthStep('email')}
+                className="w-full py-1 text-xs text-slate-400 hover:text-slate-200 transition"
+              >
+                Use a different email
+              </button>
+            </form>
+          )}
+        </div>
+      </div>
+    );
   }
 
+  // 2. Local AES-256-GCM SQLite Vault Decryption Checkpoint
   if (!vaultUnlocked) {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4">
@@ -91,6 +234,7 @@ export function App() {
     );
   }
 
+  // 3. Main Dashboard & Navigation
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <header className="border-b border-slate-800 bg-slate-900/50 backdrop-blur sticky top-0 z-10">
