@@ -43,14 +43,12 @@ export async function importBrokerCsv(
     file.name.endsWith('.xls') ||
     file.type.includes('spreadsheetml');
 
-  // INDEPENDENT ISOLATION: Excel workbooks route to parseZerodhaExcel
   if (isExcel) {
     const summary = await parseZerodhaExcel(file, db);
     onComplete(summary);
     return;
   }
 
-  // STANDARD CSV BRANCH: Avanza & Zerodha CSV parsers remain 100% intact
   const text = await file.text();
   let newTxns = 0;
   let duplicates = 0;
@@ -60,7 +58,6 @@ export async function importBrokerCsv(
 
   try {
     if (broker.toLowerCase() === 'avanza') {
-      // Avanza uses semicolon delimiter and Swedish headers
       const rows = parseCsvLines(text, ';');
       if (rows.length < 2) throw new Error('Avanza CSV is empty or invalid.');
 
@@ -91,15 +88,13 @@ export async function importBrokerCsv(
 
         if (quantity <= 0) continue;
 
-        const checkStmt = db.prepare(
+        const checkRes = db.exec(
           `SELECT id FROM transactions 
-           WHERE broker = 'Avanza' AND symbol = ? AND trade_date = ? AND action = ? AND quantity = ? AND price = ?`
+           WHERE broker = 'Avanza' AND symbol = ? AND trade_date = ? AND action = ? AND quantity = ? AND price = ?`,
+          [symbol, tradeDate, action, quantity, price]
         );
-        checkStmt.bind([symbol, tradeDate, action, quantity, price]);
-        const exists = checkStmt.step();
-        checkStmt.free();
 
-        if (exists) {
+        if (checkRes.length > 0 && checkRes[0].values.length > 0) {
           duplicates++;
           continue;
         }
@@ -112,7 +107,6 @@ export async function importBrokerCsv(
         newTxns++;
       }
 
-      // Recompute Avanza holdings
       db.run(`DELETE FROM holdings WHERE broker = 'Avanza' AND category = 'EQUITY'`);
 
       const hStmt = db.prepare(`
@@ -153,7 +147,7 @@ export async function importBrokerCsv(
       return;
     }
 
-    // Fallback: Standard CSV comma-delimited parser (e.g. Zerodha Tradebook CSV)
+    // Standard CSV fallback (e.g. Zerodha Tradebook CSV)
     const delimiter = text.includes(';') ? ';' : ',';
     const rows = parseCsvLines(text, delimiter);
     if (rows.length < 2) throw new Error('CSV is empty or invalid.');
@@ -182,15 +176,13 @@ export async function importBrokerCsv(
 
       if (quantity <= 0) continue;
 
-      const checkStmt = db.prepare(
+      const checkRes = db.exec(
         `SELECT id FROM transactions 
-         WHERE broker = ? AND symbol = ? AND trade_date = ? AND action = ? AND quantity = ? AND price = ?`
+         WHERE broker = ? AND symbol = ? AND trade_date = ? AND action = ? AND quantity = ? AND price = ?`,
+        [broker, symbol, tradeDate, action, quantity, price]
       );
-      checkStmt.bind([broker, symbol, tradeDate, action, quantity, price]);
-      const exists = checkStmt.step();
-      checkStmt.free();
 
-      if (exists) {
+      if (checkRes.length > 0 && checkRes[0].values.length > 0) {
         duplicates++;
         continue;
       }
@@ -203,9 +195,9 @@ export async function importBrokerCsv(
       newTxns++;
     }
 
-    // Recompute holdings for this broker
     db.run(`DELETE FROM holdings WHERE broker = ? AND category = 'EQUITY'`, [broker]);
 
+    // Format query directly without bind parameters on Statement
     const hStmt = db.prepare(`
       SELECT 
         symbol, name, isin, currency,
@@ -213,10 +205,9 @@ export async function importBrokerCsv(
         SUM(CASE WHEN action = 'BUY' THEN quantity * price ELSE 0 END) as total_cost,
         SUM(CASE WHEN action = 'BUY' THEN quantity ELSE 0 END) as buy_qty
       FROM transactions
-      WHERE broker = ? AND category = 'EQUITY'
+      WHERE broker = '${broker.replace(/'/g, "''")}' AND category = 'EQUITY'
       GROUP BY symbol
     `);
-    hStmt.bind([broker]);
 
     let updatedCount = 0;
     while (hStmt.step()) {

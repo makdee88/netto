@@ -5,43 +5,39 @@ export async function parseZerodhaExcel(
   file: File,
   db: Database
 ): Promise<CsvImportResult> {
-  // Dynamically import xlsx only when an Excel file is actually uploaded
   const XLSX = await import('xlsx');
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: 'array' });
 
-  // Zerodha Console workbooks have tabs like "Tradebook", "Trades", or "Holdings"
   const sheetName =
     workbook.SheetNames.find((name) =>
-      /tradebook|trades|trade|holdings/i.test(name)
+      /tradebook|trades|trade|holdings|equity/i.test(name)
     ) || workbook.SheetNames[0];
 
   const sheet = workbook.Sheets[sheetName];
   if (!sheet) {
-    throw new Error(`Could not find a valid trade/holdings sheet in ${file.name}`);
+    throw new Error(`Could not find a valid trade or holdings sheet in ${file.name}`);
   }
 
-  // Convert to 2D array to bypass Zerodha's metadata header block
   const rawRows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
 
-  // Locate the header row containing "Symbol" or "ISIN"
   const headerIdx = rawRows.findIndex((row) =>
-    row.some((cell) => /symbol|isin|scrip/i.test(String(cell || '')))
+    row.some((cell) => /symbol|isin|scrip|instrument/i.test(String(cell || '')))
   );
 
   if (headerIdx === -1) {
-    throw new Error('Could not identify table headers in Zerodha Excel sheet.');
+    throw new Error('Could not identify table headers in Zerodha workbook.');
   }
 
   const rawHeaders = rawRows[headerIdx].map((h) =>
     String(h || '').trim().toLowerCase()
   );
 
-  const symIdx = rawHeaders.findIndex((h) => h.includes('symbol') || h.includes('scrip'));
+  const symIdx = rawHeaders.findIndex((h) => h.includes('symbol') || h.includes('scrip') || h.includes('instrument'));
   const isinIdx = rawHeaders.findIndex((h) => h.includes('isin'));
-  const typeIdx = rawHeaders.findIndex((h) => h.includes('trade type') || h.includes('type'));
+  const typeIdx = rawHeaders.findIndex((h) => h.includes('trade type') || h.includes('type') || h.includes('action'));
   const qtyIdx = rawHeaders.findIndex((h) => h.includes('quantity') || h.includes('qty'));
-  const priceIdx = rawHeaders.findIndex((h) => h.includes('price'));
+  const priceIdx = rawHeaders.findIndex((h) => h.includes('price') || h.includes('avg. price') || h.includes('trade price'));
   const dateIdx = rawHeaders.findIndex((h) => h.includes('date'));
 
   const dataRows = rawRows.slice(headerIdx + 1);
@@ -64,27 +60,36 @@ export async function parseZerodhaExcel(
       const action = rawType.includes('SELL') ? 'SELL' : 'BUY';
       const quantity = Math.abs(parseFloat(String(row[qtyIdx] || '0')));
       const price = parseFloat(String(row[priceIdx] || '0'));
-      const tradeDate = dateIdx !== -1 ? String(row[dateIdx] || '').slice(0, 10) : new Date().toISOString().slice(0, 10);
+
+      let tradeDate = new Date().toISOString().slice(0, 10);
+      if (dateIdx !== -1 && row[dateIdx]) {
+        const val = row[dateIdx];
+        if (typeof val === 'number') {
+          const parsedDate = new Date(Math.round((val - 25569) * 86400 * 1000));
+          if (!isNaN(parsedDate.getTime())) {
+            tradeDate = parsedDate.toISOString().slice(0, 10);
+          }
+        } else {
+          tradeDate = String(val).trim().slice(0, 10);
+        }
+      }
 
       if (isNaN(quantity) || quantity <= 0 || isNaN(price)) {
         continue;
       }
 
-      // Check duplicate
-      const checkStmt = db.prepare(
+      // Check duplicate using type-safe db.exec
+      const checkRes = db.exec(
         `SELECT id FROM transactions 
-         WHERE broker = 'Zerodha' AND symbol = ? AND trade_date = ? AND action = ? AND quantity = ? AND price = ?`
+         WHERE broker = 'Zerodha' AND symbol = ? AND trade_date = ? AND action = ? AND quantity = ? AND price = ?`,
+        [symbol, tradeDate, action, quantity, price]
       );
-      checkStmt.bind([symbol, tradeDate, action, quantity, price]);
-      const exists = checkStmt.step();
-      checkStmt.free();
 
-      if (exists) {
+      if (checkRes.length > 0 && checkRes[0].values.length > 0) {
         duplicates++;
         continue;
       }
 
-      // Insert transaction
       db.run(
         `INSERT INTO transactions (broker, category, symbol, name, isin, currency, action, quantity, price, trade_date)
          VALUES ('Zerodha', 'EQUITY', ?, ?, ?, 'INR', ?, ?, ?, ?)`,
@@ -93,7 +98,6 @@ export async function parseZerodhaExcel(
       newTxns++;
     }
 
-    // Recalculate Zerodha equity holdings from ledger transactions
     db.run(`DELETE FROM holdings WHERE broker = 'Zerodha' AND category = 'EQUITY'`);
 
     const holdingsStmt = db.prepare(`
