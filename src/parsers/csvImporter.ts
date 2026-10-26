@@ -33,13 +33,12 @@ export function importBrokerCsv(
   db: Database,
   onComplete: (result: CsvImportResult) => void
 ) {
-  const isEuropean = broker === 'AVANZA' || broker === 'NORDNET';
   const brokerName = BROKER_LABELS[broker];
 
   Papa.parse<Record<string, string>>(file, {
     header: true,
     skipEmptyLines: 'greedy',
-    delimiter: isEuropean ? ';' : '',
+    delimiter: '', // Auto-detects tabs (\t), semicolons (;), or commas (,) automatically
     transformHeader: (header) => header.trim().replace(/^\ufeff/, ''),
     complete: (results) => {
       const rows = [...results.data].reverse(); // Oldest to newest
