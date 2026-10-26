@@ -204,25 +204,41 @@ export default function App() {
     refreshHoldings(database);
   };
 
-  const withGoogleAuth = (action: (token: string) => Promise<void>) => {
-    if (googleToken) {
-      action(googleToken);
-      return;
+const withGoogleAuth = async (action: (token: string) => Promise<void>) => {
+    // 1. Check if user logged in via Google OAuth and has a valid provider token
+    const token = session?.provider_token || googleToken;
+
+    if (token) {
+      try {
+        await action(token);
+        return;
+      } catch (err: any) {
+        console.warn('Cached / provider token expired or invalid, prompting via GIS...', err);
+        // Fall through to interactive prompt if the token failed
+      }
     }
+
+    // 2. Fallback: Interactive Google prompt for GitHub, Magic Link, or expired sessions
     if (!window.google?.accounts?.oauth2) {
-      setStatusMsg('Google Auth library not ready');
+      setStatusMsg('Google Auth library is still loading. Please try again in a moment.');
       return;
     }
+
     const client = window.google.accounts.oauth2.initTokenClient({
       client_id: GOOGLE_CLIENT_ID,
       scope: 'https://www.googleapis.com/auth/drive.appdata',
       callback: async (res) => {
+        if (res.error) {
+          setStatusMsg(`Google Drive connection error: ${res.error}`);
+          return;
+        }
         if (res.access_token) {
           setGoogleToken(res.access_token);
           await action(res.access_token);
         }
       },
     });
+
     client.requestAccessToken();
   };
 
