@@ -1,14 +1,27 @@
 import React, { useState } from 'react';
-import { Lock, Upload, CloudDownload, Database as DbIcon, ChevronLeft, CheckCircle2 } from 'lucide-react';
-
-export type AuthMode = 'CREATE_OR_UNLOCK' | 'RESTORE_RETURNING';
+import {
+  ShieldCheck,
+  KeyRound,
+  Upload,
+  FolderOpen,
+  Cloud,
+  ChevronLeft,
+  AlertCircle,
+  CheckCircle2,
+} from 'lucide-react';
+import { AuthMode } from '../types';
 
 interface VaultAuthScreenProps {
   authMode: AuthMode;
   setAuthMode: (mode: AuthMode) => void;
   hasExistingVault: boolean;
   onBackToLanding: () => void;
-  onUnlockOrCreate: (passphrase: string, confirmPassphrase: string, restoreBytes: Uint8Array | null, restoreName: string) => Promise<void>;
+  onUnlockOrCreate: (
+    passInput: string,
+    passConfirm: string,
+    restoreBytes: Uint8Array | null,
+    restoreName: string
+  ) => Promise<void>;
   onFetchGoogleDriveVault: (onLoaded: (bytes: Uint8Array) => void) => void;
   onResetLocalCache: () => void;
 }
@@ -24,189 +37,187 @@ export const VaultAuthScreen: React.FC<VaultAuthScreenProps> = ({
 }) => {
   const [passInput, setPassInput] = useState('');
   const [passConfirm, setPassConfirm] = useState('');
-  const [pendingRestoreBytes, setPendingRestoreBytes] = useState<Uint8Array | null>(null);
-  const [pendingRestoreName, setPendingRestoreName] = useState('');
-  const [authError, setAuthError] = useState('');
-
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      setPendingRestoreBytes(new Uint8Array(reader.result as ArrayBuffer));
-      setPendingRestoreName(file.name);
-      setAuthError('');
-    };
-    reader.readAsArrayBuffer(file);
-  };
+  const [restoreBytes, setRestoreBytes] = useState<Uint8Array | null>(null);
+  const [restoreName, setRestoreName] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setAuthError('');
+    setErrorMsg(null);
+    setLoading(true);
     try {
-      await onUnlockOrCreate(passInput, passConfirm, pendingRestoreBytes, pendingRestoreName);
+      await onUnlockOrCreate(passInput, passConfirm, restoreBytes, restoreName);
     } catch (err: any) {
-      setAuthError(err.message || 'Decryption failed.');
+      setErrorMsg(err.message || 'Authentication failed. Check your passphrase.');
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex flex-col justify-center items-center p-6 bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950">
-      <div className="max-w-lg w-full space-y-4">
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center justify-center p-6">
+      <div className="max-w-md w-full space-y-6">
+        {/* Back Button */}
         <button
           onClick={onBackToLanding}
-          className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-white font-medium"
+          className="flex items-center gap-1.5 text-xs font-semibold opacity-70 hover:opacity-100 transition text-slate-300"
         >
-          <ChevronLeft className="w-4 h-4" /> Back to Netto Overview & Infographic
+          <ChevronLeft className="w-4 h-4" /> Back to Overview
         </button>
 
-        <div className="bg-slate-900/95 border border-slate-800 rounded-3xl p-8 shadow-2xl space-y-6">
-          <div className="grid grid-cols-2 gap-2 p-1 bg-slate-950 rounded-xl border border-slate-800 text-xs font-semibold">
-            <button
-              type="button"
-              onClick={() => {
-                setAuthMode('CREATE_OR_UNLOCK');
-                setAuthError('');
-              }}
-              className={`py-2.5 rounded-lg transition ${
-                authMode === 'CREATE_OR_UNLOCK' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              {hasExistingVault ? 'Unlock Local Vault' : '1. New Encrypted Vault'}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setAuthMode('RESTORE_RETURNING');
-                setAuthError('');
-              }}
-              className={`py-2.5 rounded-lg transition ${
-                authMode === 'RESTORE_RETURNING' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              2. Returning User (Upload)
-            </button>
-          </div>
-
+        <div className="border border-slate-800 bg-slate-900/90 rounded-3xl p-8 space-y-6 shadow-2xl backdrop-blur-md">
           <div className="flex items-center gap-3">
-            <div className="p-3 rounded-xl bg-indigo-500/10 border border-indigo-500/30 text-indigo-400">
-              {authMode === 'RESTORE_RETURNING' ? <Upload className="w-6 h-6" /> : <DbIcon className="w-6 h-6" />}
+            <div className="p-3 rounded-2xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+              <ShieldCheck className="w-7 h-7" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-white">
+              <h2 className="text-xl font-bold tracking-tight">
                 {authMode === 'RESTORE_RETURNING'
-                  ? 'Restore Your Encrypted Netto Vault'
+                  ? 'Restore Encrypted Vault'
                   : hasExistingVault
-                  ? 'Unlock Your Local Netto Vault'
-                  : 'Create Your Encrypted SQLite Database'}
-              </h1>
-              <p className="text-xs text-slate-400">
-                {authMode === 'RESTORE_RETURNING'
-                  ? 'Upload your .sqlite.enc file or fetch from Google Drive, then enter your passphrase.'
-                  : 'Protected with client-side PBKDF2 + AES-256-GCM encryption.'}
+                  ? 'Unlock Netto Vault'
+                  : 'Create Secure Vault'}
+              </h2>
+              <p className="text-xs opacity-60">
+                {hasExistingVault
+                  ? 'AES-256-GCM Local Encryption'
+                  : 'Zero-Knowledge Client-Side SQLite'}
               </p>
             </div>
           </div>
 
-          {authMode === 'RESTORE_RETURNING' && (
-            <div className="space-y-3 bg-slate-950 p-4 rounded-2xl border border-slate-800">
-              <label className="block text-xs font-semibold text-slate-300">
-                Step A: Choose where to load your encrypted database from
-              </label>
-              <div className="grid grid-cols-2 gap-3">
-                <label className="flex flex-col items-center justify-center p-4 border border-dashed border-slate-700 hover:border-indigo-500 rounded-xl cursor-pointer bg-slate-900/60 text-center transition">
-                  <Upload className="w-5 h-5 text-indigo-400 mb-1.5" />
-                  <span className="text-xs font-semibold text-white">Upload .sqlite.enc</span>
-                  <span className="text-[10px] text-slate-400">From your computer</span>
-                  <input type="file" accept=".enc,.sqlite" onChange={handleFileSelect} className="hidden" />
-                </label>
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    onFetchGoogleDriveVault((bytes) => {
-                      setPendingRestoreBytes(bytes);
-                      setPendingRestoreName('Google Drive Vault (netto_vault.sqlite.enc)');
-                    })
-                  }
-                  className="flex flex-col items-center justify-center p-4 border border-slate-700 hover:border-indigo-500 rounded-xl bg-slate-900/60 text-center transition"
-                >
-                  <CloudDownload className="w-5 h-5 text-emerald-400 mb-1.5" />
-                  <span className="text-xs font-semibold text-white">Pull from Google Drive</span>
-                  <span className="text-[10px] text-slate-400">1-Click Cloud Restore</span>
-                </button>
-              </div>
-
-              {pendingRestoreName && (
-                <div className="flex items-center gap-2 text-xs text-emerald-400 bg-emerald-950/40 border border-emerald-500/30 px-3 py-2 rounded-lg">
-                  <CheckCircle2 className="w-4 h-4 shrink-0" />
-                  <span>
-                    Ready to decrypt: <b>{pendingRestoreName}</b>
-                  </span>
-                </div>
-              )}
+          {errorMsg && (
+            <div className="p-3.5 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs flex items-start gap-2.5">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>{errorMsg}</span>
             </div>
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1.5">
-                {authMode === 'RESTORE_RETURNING'
-                  ? 'Step B: Enter Master Passphrase for This Backup'
-                  : hasExistingVault
-                  ? 'Enter Master Passphrase to Unlock'
-                  : 'Set a Strong Master Encryption Passphrase'}
-              </label>
-              <input
-                type="password"
-                required
-                placeholder="Enter passphrase (min 6 characters)..."
-                value={passInput}
-                onChange={(e) => setPassInput(e.target.value)}
-                className="w-full px-4 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white focus:border-indigo-500 focus:outline-none text-sm"
-              />
-            </div>
+            {authMode === 'RESTORE_RETURNING' && (
+              <div className="space-y-2">
+                <label className="block text-xs font-medium opacity-80">Select Encrypted Vault File (.sqlite.enc)</label>
+                <div className="flex gap-2">
+                  <label className="flex-1 border border-dashed border-slate-700 hover:border-indigo-500 bg-slate-950/50 p-3 rounded-2xl text-xs flex items-center justify-center gap-2 cursor-pointer transition">
+                    <FolderOpen className="w-4 h-4 text-indigo-400" />
+                    <span className="truncate">{restoreName || 'Choose .sqlite.enc file'}</span>
+                    <input
+                      type="file"
+                      accept=".enc"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          setRestoreName(file.name);
+                          const reader = new FileReader();
+                          reader.onload = (evt) => {
+                            if (evt.target?.result) {
+                              setRestoreBytes(new Uint8Array(evt.target.result as ArrayBuffer));
+                            }
+                          };
+                          reader.readAsArrayBuffer(file);
+                        }
+                      }}
+                    />
+                  </label>
 
-            {authMode === 'CREATE_OR_UNLOCK' && !hasExistingVault && (
-              <div>
-                <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1.5">
-                  Confirm Master Passphrase
-                </label>
-                <input
-                  type="password"
-                  required
-                  placeholder="Confirm passphrase..."
-                  value={passConfirm}
-                  onChange={(e) => setPassConfirm(e.target.value)}
-                  className="w-full px-4 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white focus:border-indigo-500 focus:outline-none text-sm"
-                />
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onFetchGoogleDriveVault((bytes) => {
+                        setRestoreBytes(bytes);
+                        setRestoreName('Google_Drive_Backup.sqlite.enc');
+                      })
+                    }
+                    className="bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/30 text-indigo-300 px-3.5 rounded-2xl text-xs font-semibold flex items-center gap-1.5 transition"
+                    title="Pull from Google Drive AppData"
+                  >
+                    <Cloud className="w-4 h-4" /> Drive
+                  </button>
+                </div>
               </div>
             )}
 
-            {authError && <p className="text-xs text-rose-400 font-medium">{authError}</p>}
+            <div className="space-y-1.5">
+              <label className="block text-xs font-medium opacity-80">Master Passphrase</label>
+              <div className="relative">
+                <KeyRound className="absolute left-3.5 top-3.5 w-4 h-4 opacity-40" />
+                <input
+                  type="password"
+                  value={passInput}
+                  onChange={(e) => setPassInput(e.target.value)}
+                  placeholder="At least 6 characters"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-2xl py-3 pl-10 pr-4 text-xs text-white focus:outline-none focus:border-indigo-500 transition"
+                  required
+                />
+              </div>
+            </div>
+
+            {(!hasExistingVault || authMode === 'RESTORE_RETURNING') && (
+              <div className="space-y-1.5">
+                <label className="block text-xs font-medium opacity-80">Confirm Passphrase</label>
+                <div className="relative">
+                  <KeyRound className="absolute left-3.5 top-3.5 w-4 h-4 opacity-40" />
+                  <input
+                    type="password"
+                    value={passConfirm}
+                    onChange={(e) => setPassConfirm(e.target.value)}
+                    placeholder="Re-enter passphrase"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-2xl py-3 pl-10 pr-4 text-xs text-white focus:outline-none focus:border-indigo-500 transition"
+                    required
+                  />
+                </div>
+              </div>
+            )}
 
             <button
               type="submit"
-              className="w-full py-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold transition flex items-center justify-center gap-2 text-sm shadow-lg shadow-indigo-600/25"
+              disabled={loading}
+              className="w-full py-3.5 rounded-2xl font-bold text-xs bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white shadow-lg shadow-indigo-600/20 transition flex items-center justify-center gap-2"
             >
-              <Lock className="w-4 h-4" />
-              {authMode === 'RESTORE_RETURNING'
-                ? 'Decrypt & Restore Portfolio'
-                : hasExistingVault
-                ? 'Decrypt & Open Netto'
-                : 'Create Encrypted SQLite Database'}
+              {loading ? (
+                'Processing Vault...'
+              ) : authMode === 'RESTORE_RETURNING' ? (
+                <>
+                  <Upload className="w-4 h-4" /> Restore & Unlock Vault
+                </>
+              ) : hasExistingVault ? (
+                <>
+                  <ShieldCheck className="w-4 h-4" /> Unlock Vault
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="w-4 h-4" /> Initialize Encrypted Vault
+                </>
+              )}
             </button>
           </form>
 
-          {authMode === 'CREATE_OR_UNLOCK' && hasExistingVault && (
+          <div className="pt-2 border-t border-slate-800/60 flex flex-wrap justify-between items-center text-xs opacity-70">
+            {authMode !== 'RESTORE_RETURNING' && hasExistingVault && (
+              <button
+                onClick={() => setAuthMode('RESTORE_RETURNING')}
+                className="text-indigo-400 hover:underline font-medium"
+              >
+                Restore from file or Cloud?
+              </button>
+            )}
+            {authMode === 'RESTORE_RETURNING' && (
+              <button
+                onClick={() => setAuthMode('CREATE_OR_UNLOCK')}
+                className="text-indigo-400 hover:underline font-medium"
+              >
+                Back to normal unlock
+              </button>
+            )}
             <button
-              type="button"
               onClick={onResetLocalCache}
-              className="w-full text-center text-xs text-slate-500 hover:text-slate-300"
+              className="text-rose-400 hover:underline font-medium ml-auto"
             >
-              Want to start a brand-new database instead? Reset local browser cache
+              Reset local cache
             </button>
-          )}
+          </div>
         </div>
       </div>
     </div>
