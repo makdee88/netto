@@ -3,6 +3,7 @@ export type AssetCategory = 'EQUITY' | 'FIXED_DEPOSIT';
 export type PropertyType = 'APARTMENT' | 'LAND' | 'HOUSE' | 'COMMERCIAL';
 export type LiabilityType = 'MORTGAGE' | 'CAR_LOAN' | 'PERSONAL_LOAN' | 'CREDIT_CARD';
 export type CurrencyCode = 'SEK' | 'INR' | 'USD' | 'EUR';
+export type AuthMode = 'CREATE_OR_UNLOCK' | 'RESTORE_RETURNING';
 
 export interface HoldingRow {
   id: number;

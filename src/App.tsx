@@ -9,9 +9,9 @@ import {
 } from './crypto/vaultCrypto';
 import { importBrokerCsv } from './parsers/csvImporter';
 import { syncToGoogleDrive, loadFromGoogleDrive } from './sync/googleDrive';
-import { BrokerType, CsvImportResult, CurrencyCode, HoldingRow } from './types';
+import { BrokerType, CsvImportResult, CurrencyCode, HoldingRow, AuthMode } from './types';
 import { LandingPage } from './components/LandingPage';
-import { VaultAuthScreen, AuthMode } from './components/VaultAuthScreen';
+import { VaultAuthScreen } from './components/VaultAuthScreen';
 import { OverviewTab } from './components/OverviewTab';
 import { ManageAssetsTab } from './components/ManageAssetsTab';
 import { PrivacyArchitectureModal } from './components/PrivacyArchitectureModal';
