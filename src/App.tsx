@@ -28,6 +28,7 @@ import { OverviewTab } from './components/OverviewTab';
 import { ManageAssetsTab } from './components/ManageAssetsTab';
 import { PrivacyArchitectureModal } from './components/PrivacyArchitectureModal';
 import { ChangePassphraseModal } from './components/ChangePassphraseModal';
+import { CsvImportSummaryModal } from './components/CsvImportSummaryModal';
 import { useVaultManager, getVaultListKey } from './hooks/useVaultManager';
 
 import {
@@ -44,6 +45,7 @@ import {
   EyeOff,
   FileDown,
   Lock,
+  CheckCircle,
 } from 'lucide-react';
 
 const THEME_KEY = 'netto_color_theme';
@@ -86,7 +88,7 @@ export default function App() {
   const [passphrase, setPassphrase] = useState<string>('');
   const [showSecurityModal, setShowSecurityModal] = useState<boolean>(false);
   const [showPassModal, setShowPassModal] = useState<boolean>(false);
-  const [_csvSummary, setCsvSummary] = useState<CsvImportResult | null>(null);
+  const [csvSummary, setCsvSummary] = useState<CsvImportResult | null>(null);
 
   const [holdings, setHoldings] = useState<HoldingRow[]>([]);
   const [baseCurrency, setBaseCurrency] = useState<CurrencyCode>('SEK');
@@ -159,7 +161,6 @@ export default function App() {
     refreshHoldings(database);
   };
 
-  // 1. Theme and Supabase Auth Subscription without aggressive lockouts
   useEffect(() => {
     const savedTheme = localStorage.getItem(THEME_KEY) as 'dark' | 'light' | null;
     if (savedTheme) setTheme(savedTheme);
@@ -197,7 +198,6 @@ export default function App() {
         sessionStorage.setItem(GDRIVE_TOKEN_KEY, currentSession.provider_token);
       }
 
-      // DO NOT reset to 'AUTH' if user is already unlocked in DASHBOARD
       if (event === 'SIGNED_IN' && currentSession) {
         setStep((prev) => {
           if (prev === 'DASHBOARD') return 'DASHBOARD';
@@ -220,7 +220,6 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, [activeVaultName]);
 
-  // 2. Auto-unlock when navigating or re-focusing if session holds active passphrase
   useEffect(() => {
     if (!db && session && activeStorageKey) {
       const cachedPass = sessionStorage.getItem(SESSION_PASS_PREFIX + activeVaultName);
@@ -270,6 +269,46 @@ export default function App() {
   };
 
   const withGoogleAuth = async (action: (token: string) => Promise<void>) => {
+    const requestFreshToken = () => {
+      if (!window.google?.accounts?.oauth2) {
+        alert(
+          'Google Identity Services library is not loaded. Ensure accounts.google.com/gsi/client is included in index.html.'
+        );
+        setStatusMsg('Google Auth client unavailable');
+        return;
+      }
+
+      try {
+        const client = window.google.accounts.oauth2.initTokenClient({
+          client_id: GOOGLE_CLIENT_ID,
+          scope: 'https://www.googleapis.com/auth/drive.appdata',
+          callback: async (res: any) => {
+            if (res.error) {
+              console.error('Google token error:', res);
+              alert(`Google Drive permission error: ${res.error_description || res.error}`);
+              setStatusMsg('Google Drive access rejected');
+              return;
+            }
+            if (res.access_token) {
+              setGoogleToken(res.access_token);
+              sessionStorage.setItem(GDRIVE_TOKEN_KEY, res.access_token);
+              try {
+                await action(res.access_token);
+              } catch (innerErr: any) {
+                console.error('Action failed with fresh token:', innerErr);
+                alert(`Drive operation failed: ${innerErr?.message || innerErr}`);
+              }
+            }
+          },
+        });
+
+        client.requestAccessToken({ prompt: 'consent' });
+      } catch (err: any) {
+        console.error('Failed to trigger Google Token Client:', err);
+        alert(`Google Auth Error: ${err?.message || err}`);
+      }
+    };
+
     const token =
       googleToken ||
       session?.provider_token ||
@@ -280,42 +319,21 @@ export default function App() {
         await action(token);
         return;
       } catch (err: any) {
-        console.warn('Drive token rejected or expired, requesting fresh token via GIS...', err);
-        sessionStorage.removeItem(GDRIVE_TOKEN_KEY);
-        setGoogleToken(null);
+        const errMsg = String(err?.message || err);
+        if (errMsg.includes('INSUFFICIENT_PERMISSIONS') || errMsg.includes('403') || errMsg.includes('401')) {
+          console.warn('Cached token lacks Drive permissions. Requesting explicit consent...', err);
+          sessionStorage.removeItem(GDRIVE_TOKEN_KEY);
+          setGoogleToken(null);
+          requestFreshToken();
+          return;
+        }
+        console.error('Drive action error:', err);
+        alert(`Drive error: ${errMsg}`);
+        return;
       }
     }
 
-    if (!window.google?.accounts?.oauth2) {
-      alert('Google Auth library not ready. Check that accounts.google.com/gsi/client is present.');
-      setStatusMsg('Google Auth library not loaded');
-      return;
-    }
-
-    try {
-      const client = window.google.accounts.oauth2.initTokenClient({
-        client_id: GOOGLE_CLIENT_ID,
-        scope: 'https://www.googleapis.com/auth/drive.appdata',
-        callback: async (res: any) => {
-          if (res.error) {
-            console.error('Google token error:', res);
-            alert(`Google Drive permission error: ${res.error_description || res.error}`);
-            setStatusMsg('Google Drive access rejected');
-            return;
-          }
-          if (res.access_token) {
-            setGoogleToken(res.access_token);
-            sessionStorage.setItem(GDRIVE_TOKEN_KEY, res.access_token);
-            await action(res.access_token);
-          }
-        },
-      });
-
-      client.requestAccessToken({ prompt: '' });
-    } catch (err: any) {
-      console.error('Failed to trigger Google Token Client:', err);
-      alert(`Google Auth Error: ${err?.message || err}`);
-    }
+    requestFreshToken();
   };
 
   const handleUnlockOrCreate = async (
@@ -424,7 +442,6 @@ export default function App() {
     />
   ) : null;
 
-  // STEP 1: Landing Page
   if (step === 'LANDING') {
     return (
       <>
@@ -446,12 +463,10 @@ export default function App() {
     );
   }
 
-  // STEP 2A: Authentication Gate (If not signed into Supabase)
   if (!session) {
     return <AuthGateScreen isDark={isDark} onBackToLanding={() => handleStepChange('LANDING')} />;
   }
 
-  // STEP 2B: Local Vault Password / Unlock / Create Screen
   if (step === 'AUTH' || !db) {
     return (
       <div className="relative">
@@ -484,7 +499,6 @@ export default function App() {
     );
   }
 
-  // STEP 3: Dashboard Screen
   return (
     <div className={`min-h-screen ${isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
       {floatingBar}
@@ -614,7 +628,6 @@ export default function App() {
             <RefreshCw className="w-3.5 h-3.5" /> Prices
           </button>
 
-          {/* Backup to Local Encrypted File */}
           <button
             onClick={async () => {
               if (!db) return;
@@ -628,7 +641,6 @@ export default function App() {
             <FileDown className="w-3.5 h-3.5 text-indigo-400" /> Backup File
           </button>
 
-          {/* Backup to Google Drive AppData */}
           <button
             onClick={() =>
               withGoogleAuth(async (token) => {
@@ -643,7 +655,6 @@ export default function App() {
             <CloudUpload className="w-3.5 h-3.5" /> Save to Drive
           </button>
 
-          {/* Explicit Lock Button */}
           <button
             onClick={handleExplicitLock}
             className="p-1.5 rounded-lg border border-rose-500/30 text-rose-400 hover:bg-rose-500/10 transition"
@@ -653,6 +664,26 @@ export default function App() {
           </button>
         </div>
       </header>
+
+      {/* Confirmation Pill Banner */}
+      {csvSummary && (
+        <div className="max-w-7xl mx-auto px-6 pt-4">
+          <div className="flex items-center justify-between p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs">
+            <div className="flex items-center gap-2">
+              <CheckCircle className="w-4 h-4 shrink-0" />
+              <span>
+                <strong>Import successful:</strong> Added {csvSummary.newTransactionsAdded} transactions and updated {csvSummary.holdingsUpdated} holdings.
+              </span>
+            </div>
+            <button
+              onClick={() => setCsvSummary(null)}
+              className="text-emerald-400 hover:underline font-bold text-[11px] ml-4"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
 
       <main className="max-w-7xl mx-auto p-6 pb-20">
         {subTab === 'OVERVIEW' ? (
@@ -675,10 +706,11 @@ export default function App() {
             onCsvImport={(file, broker) =>
               importBrokerCsv(file, broker, db, async (summary) => {
                 await persistEncryptedVault(db);
+                refreshHoldings(db);
+                setCsvSummary(summary);
                 setStatusMsg(
                   `Imported ${summary.newTransactionsAdded} txns • ${summary.holdingsUpdated} holdings`
                 );
-                setCsvSummary(summary);
               })
             }
             onClearBroker={async (bName) => {
@@ -756,6 +788,15 @@ export default function App() {
           />
         )}
       </main>
+
+      {/* CSV Confirmation Modal Popup */}
+      {csvSummary && (
+        <CsvImportSummaryModal
+          summary={csvSummary}
+          isDark={isDark}
+          onClose={() => setCsvSummary(null)}
+        />
+      )}
 
       {showSecurityModal && (
         <PrivacyArchitectureModal onClose={() => setShowSecurityModal(false)} />
