@@ -30,12 +30,17 @@ jobs:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
-      - name: Deploy to Cloudflare Pages via Wrangler
+      - name: Ensure Pages Project Exists & Deploy
         run: |
           TARGET_BRANCH="${{ github.ref_name }}"
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             TARGET_BRANCH="main"
           fi
+
+          # Automatically create the Pages project if it doesn't exist yet
+          npx wrangler pages project create netto --production-branch=main || true
+
+          # Deploy the dist folder
           npx wrangler pages deploy dist --project-name=netto --branch=$TARGET_BRANCH
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
