@@ -1,80 +1,128 @@
-const MAGIC_HEADER = new TextEncoder().encode('NETTOV02');
+const PBKDF2_ITERATIONS = 100000;
+const SALT_BYTES = 16;
+const IV_BYTES = 12;
 
-async function deriveKey(passphrase: string, salt: Uint8Array): Promise<CryptoKey> {
+export function uint8ToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  const len = bytes.byteLength;
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return window.btoa(binary);
+}
+
+export function base64ToUint8(base64: string): Uint8Array {
+  const binary_string = window.atob(base64);
+  const len = binary_string.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binary_string.charCodeAt(i);
+  }
+  return bytes;
+}
+
+export async function encryptSqliteBytes(
+  plainBytes: Uint8Array,
+  passphrase: string
+): Promise<Uint8Array> {
   const enc = new TextEncoder();
-  const keyMaterial = await crypto.subtle.importKey(
+  const passwordBytes = enc.encode(passphrase);
+
+  const keyMaterial = await window.crypto.subtle.importKey(
     'raw',
-    enc.encode(passphrase),
+    passwordBytes,
     { name: 'PBKDF2' },
     false,
     ['deriveKey']
   );
 
-  return crypto.subtle.deriveKey(
+  const salt = window.crypto.getRandomValues(new Uint8Array(SALT_BYTES));
+  const iv = window.crypto.getRandomValues(new Uint8Array(IV_BYTES));
+
+  const key = await window.crypto.subtle.deriveKey(
     {
       name: 'PBKDF2',
-      salt: salt as any,
-      iterations: 100000,
+      salt,
+      iterations: PBKDF2_ITERATIONS,
       hash: 'SHA-256',
     },
     keyMaterial,
     { name: 'AES-GCM', length: 256 },
     false,
-    ['encrypt', 'decrypt']
+    ['encrypt']
   );
-}
 
-export async function encryptSqliteBytes(rawSqlite: Uint8Array, passphrase: string): Promise<Uint8Array> {
-  const salt = crypto.getRandomValues(new Uint8Array(16));
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const key = await deriveKey(passphrase, salt);
-
-  const encryptedBuf = await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv: iv as any },
+  const ciphertext = await window.crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
     key,
-    rawSqlite as any
+    plainBytes
   );
-  const ciphertext = new Uint8Array(encryptedBuf);
 
-  const packed = new Uint8Array(8 + 16 + 12 + ciphertext.byteLength);
-  packed.set(MAGIC_HEADER, 0);
-  packed.set(salt, 8);
-  packed.set(iv, 24);
-  packed.set(ciphertext, 36);
-  return packed;
+  const cipherBytes = new Uint8Array(ciphertext);
+  const fullPayload = new Uint8Array(SALT_BYTES + IV_BYTES + cipherBytes.byteLength);
+  fullPayload.set(salt, 0);
+  fullPayload.set(iv, SALT_BYTES);
+  fullPayload.set(cipherBytes, SALT_BYTES + IV_BYTES);
+
+  return fullPayload;
 }
 
-export async function decryptSqliteBytes(packed: Uint8Array, passphrase: string): Promise<Uint8Array> {
-  const header = new TextDecoder().decode(packed.slice(0, 8));
-  if (header !== 'NETTOV02') {
-    throw new Error('Invalid or unencrypted Netto vault file.');
+export async function decryptSqliteBytes(
+  encryptedBytes: Uint8Array,
+  passphrase: string
+): Promise<Uint8Array> {
+  if (encryptedBytes.byteLength < SALT_BYTES + IV_BYTES) {
+    throw new Error('Corrupted or invalid encrypted payload');
   }
-  const salt = packed.slice(8, 24);
-  const iv = packed.slice(24, 36);
-  const ciphertext = packed.slice(36);
 
-  const key = await deriveKey(passphrase, salt);
+  const salt = encryptedBytes.slice(0, SALT_BYTES);
+  const iv = encryptedBytes.slice(SALT_BYTES, SALT_BYTES + IV_BYTES);
+  const cipherBytes = encryptedBytes.slice(SALT_BYTES + IV_BYTES);
+
+  const enc = new TextEncoder();
+  const passwordBytes = enc.encode(passphrase);
+
+  const keyMaterial = await window.crypto.subtle.importKey(
+    'raw',
+    passwordBytes,
+    { name: 'PBKDF2' },
+    false,
+    ['deriveKey']
+  );
+
+  const key = await window.crypto.subtle.deriveKey(
+    {
+      name: 'PBKDF2',
+      salt,
+      iterations: PBKDF2_ITERATIONS,
+      hash: 'SHA-256',
+    },
+    keyMaterial,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['decrypt']
+  );
+
   try {
-    const decryptedBuf = await crypto.subtle.decrypt(
-      { name: 'AES-GCM', iv: iv as any },
+    const plainBuffer = await window.crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv },
       key,
-      ciphertext as any
+      cipherBytes
     );
-    return new Uint8Array(decryptedBuf);
+    return new Uint8Array(plainBuffer);
   } catch {
-    throw new Error('Incorrect Master Passphrase! Decryption failed.');
+    throw new Error('Incorrect passphrase or corrupted encrypted database');
   }
 }
 
-export function uint8ToBase64(bytes: Uint8Array): string {
-  let binary = '';
-  for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
-  return btoa(binary);
-}
-
-export function base64ToUint8(base64: string): Uint8Array {
-  const bin = atob(base64);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return bytes;
+export function downloadEncryptedBlob(bytes: Uint8Array, vaultName: string) {
+  const blob = new Blob([bytes.buffer as ArrayBuffer], { type: 'application/octet-stream' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `netto_vault_${vaultName}_${new Date().toISOString().slice(0, 10)}.sqlite.enc`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import type { Database } from 'sql.js';
 import { Session, AuthChangeEvent } from '@supabase/supabase-js';
 import { supabase } from './supabase';
@@ -14,6 +14,7 @@ import {
   decryptSqliteBytes,
   uint8ToBase64,
   base64ToUint8,
+  downloadEncryptedBlob,
 } from './crypto/vaultCrypto';
 import { importBrokerCsv } from './parsers/csvImporter';
 import { syncToGoogleDrive, loadFromGoogleDrive } from './sync/googleDrive';
@@ -41,10 +42,13 @@ import {
   PlusCircle,
   Eye,
   EyeOff,
+  FileDown,
+  Lock,
 } from 'lucide-react';
 
 const THEME_KEY = 'netto_color_theme';
 const GDRIVE_TOKEN_KEY = 'netto_gdrive_token';
+const SESSION_PASS_PREFIX = 'netto_active_pass_';
 const GOOGLE_CLIENT_ID =
   ((import.meta as any).env?.VITE_GOOGLE_CLIENT_ID as string) ||
   'YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com';
@@ -92,7 +96,7 @@ export default function App() {
     EUR: 11.35,
     INR: 0.125,
   });
-  const [statusMsg, setStatusMsg] = useState<string>('Vault Locked');
+  const [statusMsg, setStatusMsg] = useState<string>('Vault Ready');
   const [googleToken, setGoogleToken] = useState<string | null>(() => {
     return sessionStorage.getItem(GDRIVE_TOKEN_KEY);
   });
@@ -107,7 +111,55 @@ export default function App() {
     sessionStorage.setItem('netto_sub_tab', tab);
   };
 
-  // 1. Theme and Supabase Auth Subscription
+  const refreshHoldings = useCallback(
+    (database: Database) => {
+      try {
+        const stmt = database.prepare('SELECT * FROM holdings ORDER BY broker, name');
+        const rows: HoldingRow[] = [];
+        while (stmt.step()) rows.push(stmt.getAsObject() as unknown as HoldingRow);
+        stmt.free();
+        setHoldings(rows);
+
+        const totalAssets = rows.reduce((sum, h) => {
+          const nativeVal =
+            h.category === 'FIXED_DEPOSIT'
+              ? h.principal
+              : h.quantity * (h.market_price > 0 ? h.market_price : h.avg_price);
+          return sum + (nativeVal * (fxRates[h.currency] || 1)) / (fxRates[baseCurrency] || 1);
+        }, 0);
+
+        const properties = getProperties(database);
+        const totalProps = properties.reduce(
+          (sum, p) => sum + (p.current_price * (fxRates[p.currency] || 1)) / (fxRates[baseCurrency] || 1),
+          0
+        );
+        const liabilities = getLiabilities(database);
+        const totalLiabs = liabilities.reduce(
+          (sum, l) =>
+            sum + (l.remaining_balance * (fxRates[l.currency] || 1)) / (fxRates[baseCurrency] || 1),
+          0
+        );
+
+        recordSnapshot(database, totalAssets + totalProps, totalLiabs);
+      } catch (err) {
+        console.error('Error refreshing holdings:', err);
+      }
+    },
+    [baseCurrency, fxRates]
+  );
+
+  const persistEncryptedVault = async (database: Database, activePass = passphrase) => {
+    const encrypted = await encryptSqliteBytes(database.export(), activePass);
+    localStorage.setItem(activeStorageKey, uint8ToBase64(encrypted));
+    if (session?.user?.email) {
+      const updatedList = Array.from(new Set([...vaultList, activeVaultName]));
+      setVaultList(updatedList);
+      localStorage.setItem(getVaultListKey(session.user.email), JSON.stringify(updatedList));
+    }
+    refreshHoldings(database);
+  };
+
+  // 1. Theme and Supabase Auth Subscription without aggressive lockouts
   useEffect(() => {
     const savedTheme = localStorage.getItem(THEME_KEY) as 'dark' | 'light' | null;
     if (savedTheme) setTheme(savedTheme);
@@ -122,7 +174,6 @@ export default function App() {
       if (data?.session) {
         setSession(data.session);
 
-        // Capture provider token from initial redirect if present
         if (data.session.provider_token) {
           setGoogleToken(data.session.provider_token);
           sessionStorage.setItem(GDRIVE_TOKEN_KEY, data.session.provider_token);
@@ -146,8 +197,13 @@ export default function App() {
         sessionStorage.setItem(GDRIVE_TOKEN_KEY, currentSession.provider_token);
       }
 
+      // DO NOT reset to 'AUTH' if user is already unlocked in DASHBOARD
       if (event === 'SIGNED_IN' && currentSession) {
-        handleStepChange('AUTH');
+        setStep((prev) => {
+          if (prev === 'DASHBOARD') return 'DASHBOARD';
+          sessionStorage.setItem('netto_active_step', 'AUTH');
+          return 'AUTH';
+        });
       }
 
       if (event === 'SIGNED_OUT' || !currentSession) {
@@ -156,17 +212,50 @@ export default function App() {
         setHoldings([]);
         setGoogleToken(null);
         sessionStorage.removeItem(GDRIVE_TOKEN_KEY);
+        sessionStorage.removeItem(SESSION_PASS_PREFIX + activeVaultName);
         handleStepChange('LANDING');
       }
     });
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, [activeVaultName]);
+
+  // 2. Auto-unlock when navigating or re-focusing if session holds active passphrase
+  useEffect(() => {
+    if (!db && session && activeStorageKey) {
+      const cachedPass = sessionStorage.getItem(SESSION_PASS_PREFIX + activeVaultName);
+      const savedBase64 = localStorage.getItem(activeStorageKey);
+
+      if (cachedPass && savedBase64) {
+        decryptSqliteBytes(base64ToUint8(savedBase64), cachedPass)
+          .then((decrypted) => initDatabase(decrypted))
+          .then((database) => {
+            setPassphrase(cachedPass);
+            setDb(database);
+            refreshHoldings(database);
+            setStatusMsg(`Vault [${activeVaultName}] active`);
+          })
+          .catch((err) => {
+            console.warn('Session pass expired or invalid:', err);
+            sessionStorage.removeItem(SESSION_PASS_PREFIX + activeVaultName);
+          });
+      }
+    }
+  }, [db, session, activeStorageKey, activeVaultName, refreshHoldings]);
 
   const toggleTheme = () => {
     const next = theme === 'dark' ? 'light' : 'dark';
     setTheme(next);
     localStorage.setItem(THEME_KEY, next);
+  };
+
+  const handleExplicitLock = () => {
+    setDb(null);
+    setPassphrase('');
+    setHoldings([]);
+    sessionStorage.removeItem(SESSION_PASS_PREFIX + activeVaultName);
+    setStatusMsg(`Vault [${activeVaultName}] locked`);
+    handleStepChange('AUTH');
   };
 
   const handleSwitchVault = (newVaultName: string) => {
@@ -180,48 +269,6 @@ export default function App() {
     handleStepChange('AUTH');
   };
 
-  const refreshHoldings = (database: Database) => {
-    const stmt = database.prepare('SELECT * FROM holdings ORDER BY broker, name');
-    const rows: HoldingRow[] = [];
-    while (stmt.step()) rows.push(stmt.getAsObject() as unknown as HoldingRow);
-    stmt.free();
-    setHoldings(rows);
-
-    const totalAssets = rows.reduce((sum, h) => {
-      const nativeVal =
-        h.category === 'FIXED_DEPOSIT'
-          ? h.principal
-          : h.quantity * (h.market_price > 0 ? h.market_price : h.avg_price);
-      return sum + (nativeVal * (fxRates[h.currency] || 1)) / (fxRates[baseCurrency] || 1);
-    }, 0);
-
-    const properties = getProperties(database);
-    const totalProps = properties.reduce(
-      (sum, p) => sum + (p.current_price * (fxRates[p.currency] || 1)) / (fxRates[baseCurrency] || 1),
-      0
-    );
-    const liabilities = getLiabilities(database);
-    const totalLiabs = liabilities.reduce(
-      (sum, l) =>
-        sum + (l.remaining_balance * (fxRates[l.currency] || 1)) / (fxRates[baseCurrency] || 1),
-      0
-    );
-
-    recordSnapshot(database, totalAssets + totalProps, totalLiabs);
-  };
-
-  const persistEncryptedVault = async (database: Database, activePass = passphrase) => {
-    const encrypted = await encryptSqliteBytes(database.export(), activePass);
-    localStorage.setItem(activeStorageKey, uint8ToBase64(encrypted));
-    if (session?.user?.email) {
-      const updatedList = Array.from(new Set([...vaultList, activeVaultName]));
-      setVaultList(updatedList);
-      localStorage.setItem(getVaultListKey(session.user.email), JSON.stringify(updatedList));
-    }
-    refreshHoldings(database);
-  };
-
-// Google Drive token resolution: Supabase provider_token -> sessionStorage -> Google Identity Services fallback
   const withGoogleAuth = async (action: (token: string) => Promise<void>) => {
     const token =
       googleToken ||
@@ -240,7 +287,7 @@ export default function App() {
     }
 
     if (!window.google?.accounts?.oauth2) {
-      alert('Google Auth library not ready. Check that https://accounts.google.com/gsi/client is present.');
+      alert('Google Auth library not ready. Check that accounts.google.com/gsi/client is present.');
       setStatusMsg('Google Auth library not loaded');
       return;
     }
@@ -286,6 +333,7 @@ export default function App() {
       const database = await initDatabase(decrypted);
       setPassphrase(passInput);
       setDb(database);
+      sessionStorage.setItem(SESSION_PASS_PREFIX + activeVaultName, passInput);
       await persistEncryptedVault(database, passInput);
       setHasExistingVault(true);
       setStatusMsg(`Restored [${activeVaultName}]`);
@@ -299,6 +347,7 @@ export default function App() {
       const database = await initDatabase(decrypted);
       setPassphrase(passInput);
       setDb(database);
+      sessionStorage.setItem(SESSION_PASS_PREFIX + activeVaultName, passInput);
       refreshHoldings(database);
       setStatusMsg(`Vault [${activeVaultName}] Unlocked`);
       handleStepChange('DASHBOARD');
@@ -307,6 +356,7 @@ export default function App() {
       const database = await initDatabase();
       setPassphrase(passInput);
       setDb(database);
+      sessionStorage.setItem(SESSION_PASS_PREFIX + activeVaultName, passInput);
       await persistEncryptedVault(database, passInput);
       setHasExistingVault(true);
       setStatusMsg(`New Vault [${activeVaultName}] Created!`);
@@ -322,6 +372,7 @@ export default function App() {
       setSession(null);
       setGoogleToken(null);
       sessionStorage.removeItem(GDRIVE_TOKEN_KEY);
+      sessionStorage.removeItem(SESSION_PASS_PREFIX + activeVaultName);
       sessionStorage.removeItem('netto_active_step');
 
       await supabase.auth.signOut({ scope: 'local' });
@@ -349,7 +400,6 @@ export default function App() {
     session?.user?.user_metadata?.name ||
     (userEmail ? userEmail.split('@')[0] : '');
 
-  // Floating Bar: Rendered whenever a session exists
   const floatingBar = session ? (
     <FloatingVaultBar
       email={userEmail}
@@ -367,6 +417,7 @@ export default function App() {
         setDb(null);
         setPassphrase('');
         setHoldings([]);
+        sessionStorage.removeItem(SESSION_PASS_PREFIX + name);
         handleStepChange('AUTH');
       }}
       onLogout={handleSignOut}
@@ -423,6 +474,7 @@ export default function App() {
           onResetLocalCache={() => {
             if (confirm(`Clear cached vault [${activeVaultName}]?`)) {
               localStorage.removeItem(activeStorageKey);
+              sessionStorage.removeItem(SESSION_PASS_PREFIX + activeVaultName);
               setHasExistingVault(false);
               handleStepChange('AUTH');
             }
@@ -525,7 +577,7 @@ export default function App() {
                 .map((h) => h.symbol);
               const vaultRes = db.exec("SELECT value FROM app_config WHERE key = 'vault_id'");
               const vaultId = (vaultRes[0]?.values[0]?.[0] as string) || 'anon';
-              setStatusMsg('Fetching anonymous quotes via Cloudflare Edge...');
+              setStatusMsg('Fetching quotes...');
               try {
                 const res = await fetch(
                   `/api/quotes?symbols=${encodeURIComponent(symbols.join(','))}`,
@@ -552,21 +604,35 @@ export default function App() {
                   db.run('COMMIT');
                   await persistEncryptedVault(db);
                 }
-                setStatusMsg('Live market prices & FX updated!');
+                setStatusMsg('Live market prices updated!');
               } catch {
-                setStatusMsg('Using cached/CSV prices');
+                setStatusMsg('Using cached prices');
               }
             }}
             className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg text-xs font-semibold"
           >
             <RefreshCw className="w-3.5 h-3.5" /> Prices
           </button>
+
+          {/* Backup to Local Encrypted File */}
+          <button
+            onClick={async () => {
+              if (!db) return;
+              const enc = await encryptSqliteBytes(db.export(), passphrase);
+              downloadEncryptedBlob(enc, activeVaultName);
+              setStatusMsg('Encrypted backup exported!');
+            }}
+            className="flex items-center gap-1.5 border border-slate-700 hover:bg-slate-800 text-slate-200 px-3 py-1.5 rounded-lg text-xs font-semibold"
+            title="Download encrypted .sqlite.enc file directly"
+          >
+            <FileDown className="w-3.5 h-3.5 text-indigo-400" /> Backup File
+          </button>
+
+          {/* Backup to Google Drive AppData */}
           <button
             onClick={() =>
               withGoogleAuth(async (token) => {
-                setStatusMsg(
-                  `Encrypting & uploading [netto_vault_${activeVaultName}.sqlite.enc]...`
-                );
+                setStatusMsg(`Syncing to Google Drive AppData...`);
                 const enc = await encryptSqliteBytes(db.export(), passphrase);
                 const msg = await syncToGoogleDrive(token, enc, activeVaultName);
                 setStatusMsg(msg);
@@ -575,6 +641,15 @@ export default function App() {
             className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-lg text-xs font-semibold shadow"
           >
             <CloudUpload className="w-3.5 h-3.5" /> Save to Drive
+          </button>
+
+          {/* Explicit Lock Button */}
+          <button
+            onClick={handleExplicitLock}
+            className="p-1.5 rounded-lg border border-rose-500/30 text-rose-400 hover:bg-rose-500/10 transition"
+            title="Lock Vault Now"
+          >
+            <Lock className="w-4 h-4" />
           </button>
         </div>
       </header>
@@ -696,6 +771,7 @@ export default function App() {
             const newlyEncrypted = await encryptSqliteBytes(db.export(), newPass);
             localStorage.setItem(activeStorageKey, uint8ToBase64(newlyEncrypted));
             setPassphrase(newPass);
+            sessionStorage.setItem(SESSION_PASS_PREFIX + activeVaultName, newPass);
             if (googleToken) {
               await syncToGoogleDrive(googleToken, newlyEncrypted, activeVaultName);
             }
