@@ -350,6 +350,7 @@ export default function App() {
           authMode={authMode}
           setAuthMode={setAuthMode}
           hasExistingVault={hasExistingVault}
+          theme={theme}
           userEmail={userEmail}
           activeVaultName={activeVaultName}
           onBackToLanding={() => handleStepChange('LANDING')}
