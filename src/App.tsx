@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import type { Database } from 'sql.js';
-import { initDatabase, recordSnapshot, getProperties, getLiabilities } from './db/database';
+import { initDatabase, recordSnapshot, getProperties, getLiabilities, clearBrokerData } from './db/database';
 import {
   encryptSqliteBytes,
   decryptSqliteBytes,
@@ -410,6 +410,12 @@ export default function App() {
                 setCsvSummary(summary);
               })
             }
+            onClearBroker={async (brokerName) => {
+              clearBrokerData(db, brokerName);
+              await persistEncryptedVault(db);
+              refreshHoldings(db);
+              setStatusMsg(`Cleared all transaction history & holdings for ${brokerName}`);
+            }}
             onAddFD={async (fd) => {
               db.run(
                 `INSERT INTO holdings (broker, category, symbol, name, currency, principal, interest_rate, compounding_freq, start_date, maturity_date)
