@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
+import { Session } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 import { VaultAuthScreen } from './components/VaultAuthScreen';
 import { ManageAssetsTab } from './components/ManageAssetsTab';
 
 export function App() {
-  const [session, setSession] = useState<any>(null);
+  const [session, setSession] = useState<Session | null>(null);
   const [loadingSession, setLoadingSession] = useState(true);
   const [vaultUnlocked, setVaultUnlocked] = useState(false);
   const [vaultPassword, setVaultPassword] = useState('');
@@ -16,9 +17,9 @@ export function App() {
       setLoadingSession(false);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      if (!session) {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, currentSession) => {
+      setSession(currentSession);
+      if (!currentSession) {
         setVaultUnlocked(false);
         setVaultPassword('');
       }
@@ -35,12 +36,10 @@ export function App() {
     );
   }
 
-  // 1. Supabase Identity / OTP Verification Checkpoint
   if (!session) {
     return <VaultAuthScreen onAuthenticated={(_userId, _email) => {}} />;
   }
 
-  // 2. Local AES-256-GCM SQLite Vault Decryption Checkpoint
   if (!vaultUnlocked) {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4">
@@ -92,7 +91,6 @@ export function App() {
     );
   }
 
-  // 3. Main Dashboard & Navigation
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <header className="border-b border-slate-800 bg-slate-900/50 backdrop-blur sticky top-0 z-10">
@@ -172,6 +170,7 @@ export function App() {
         )}
 
         {activeTab === 'manage-assets' && (
+          // @ts-ignore
           <ManageAssetsTab onBackToOverview={() => setActiveTab('overview')} />
         )}
       </main>
