@@ -25,7 +25,7 @@ export const FloatingVaultBar: React.FC<FloatingVaultBarProps> = ({
   const [isCreating, setIsCreating] = useState(false);
   const [nameInput, setNameInput] = useState('');
 
-  const displayName = fullName || email.split('@')[0];
+  const displayName = fullName || email.split('@')[0] || 'User';
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,8 +39,8 @@ export const FloatingVaultBar: React.FC<FloatingVaultBarProps> = ({
     <div
       className={`fixed bottom-4 right-4 z-50 flex flex-wrap items-center gap-3 px-4 py-2.5 rounded-2xl border shadow-2xl backdrop-blur-md text-xs transition ${
         isDark
-          ? 'bg-slate-900/95 border-emerald-500/30 text-slate-200'
-          : 'bg-white/95 border-emerald-500/30 text-slate-800'
+          ? 'bg-slate-900/95 border-emerald-500/40 text-slate-200'
+          : 'bg-white/95 border-emerald-500/40 text-slate-800'
       }`}
     >
       {/* Welcome & Identity Badge */}
@@ -49,11 +49,11 @@ export const FloatingVaultBar: React.FC<FloatingVaultBarProps> = ({
           <UserCheck className="w-3.5 h-3.5" />
         </div>
         <div className="flex flex-col">
-          <span className="text-[10px] uppercase font-semibold tracking-wider text-emerald-400 leading-none">
-            Welcome back
+          <span className="text-[10px] uppercase font-bold tracking-wider text-emerald-400 leading-none">
+            Logged In
           </span>
-          <span className="font-bold text-slate-100 text-xs">
-            {displayName} <span className="font-normal opacity-60 text-[10px]">({email})</span>
+          <span className="font-bold text-slate-100 text-xs mt-0.5">
+            {displayName} {email && <span className="font-normal opacity-60 text-[10px]">({email})</span>}
           </span>
         </div>
       </div>

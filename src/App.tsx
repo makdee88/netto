@@ -76,30 +76,33 @@ export default function App() {
     const savedTheme = localStorage.getItem(THEME_KEY) as 'dark' | 'light' | null;
     if (savedTheme) setTheme(savedTheme);
 
-    // Initial session check
+    const isOAuthRedirect =
+      window.location.hash.includes('access_token') ||
+      window.location.hash.includes('type=recovery') ||
+      window.location.search.includes('code=');
+
     supabase.auth.getSession().then(({ data: { session: currentSession } }) => {
-      setSession(currentSession);
       if (currentSession) {
-        // If coming back from OAuth redirect, jump straight to AUTH
-        if (window.location.hash && (window.location.hash.includes('access_token') || window.location.hash.includes('type='))) {
+        setSession(currentSession);
+        if (isOAuthRedirect) {
           window.history.replaceState({}, document.title, window.location.pathname);
+          handleStepChange('AUTH');
         }
-        setStep('AUTH');
-        sessionStorage.setItem('netto_active_step', 'AUTH');
       }
       setLoadingSession(false);
     });
 
-    // Listen for Auth changes (e.g. user completes Google / GitHub popup or redirect)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event: AuthChangeEvent, currentSession: Session | null) => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event: AuthChangeEvent, currentSession: Session | null) => {
       setSession(currentSession);
 
-      if (event === 'SIGNED_IN' && currentSession) {
+      if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && currentSession) {
         setStep('AUTH');
         sessionStorage.setItem('netto_active_step', 'AUTH');
       }
 
-      if (!currentSession) {
+      if (event === 'SIGNED_OUT' || !currentSession) {
         setDb(null);
         setPassphrase('');
         setHoldings([]);
@@ -239,10 +242,17 @@ export default function App() {
     );
   }
 
-  const floatingBar = session && (
+  const userEmail = session?.user?.email || '';
+  const userFullName =
+    session?.user?.user_metadata?.full_name ||
+    session?.user?.user_metadata?.name ||
+    session?.user?.user_metadata?.user_name ||
+    (userEmail ? userEmail.split('@')[0] : '');
+
+  const floatingBar = session ? (
     <FloatingVaultBar
-      email={session.user.email || ''}
-      fullName={session.user.user_metadata?.full_name || session.user.user_metadata?.name}
+      email={userEmail}
+      fullName={userFullName}
       isDark={isDark}
       activeVaultName={activeVaultName}
       vaultList={vaultList}
@@ -258,9 +268,8 @@ export default function App() {
         handleStepChange('LANDING');
       }}
     />
-  );
+  ) : null;
 
-  // STEP 1: Landing Page
   if (step === 'LANDING') {
     return (
       <>
@@ -271,23 +280,21 @@ export default function App() {
           onToggleTheme={toggleTheme}
           onLaunchCreateOrUnlock={() => {
             setAuthMode('CREATE_OR_UNLOCK');
-            handleStepChange(session ? 'AUTH' : 'AUTH');
+            handleStepChange('AUTH');
           }}
           onLaunchRestore={() => {
             setAuthMode('RESTORE_RETURNING');
-            handleStepChange(session ? 'AUTH' : 'AUTH');
+            handleStepChange('AUTH');
           }}
         />
       </>
     );
   }
 
-  // STEP 2A: Mandatory Supabase Login Gate
   if (!session) {
     return <AuthGateScreen isDark={isDark} onBackToLanding={() => handleStepChange('LANDING')} />;
   }
 
-  // STEP 2B: Local Vault Passphrase Decryption / Creation
   if (step === 'AUTH' || !db) {
     return (
       <>
@@ -296,7 +303,7 @@ export default function App() {
           authMode={authMode}
           setAuthMode={setAuthMode}
           hasExistingVault={hasExistingVault}
-          userEmail={session.user.email}
+          userEmail={userEmail}
           activeVaultName={activeVaultName}
           onBackToLanding={() => handleStepChange('LANDING')}
           onUnlockOrCreate={handleUnlockOrCreate}
@@ -318,7 +325,6 @@ export default function App() {
     );
   }
 
-  // STEP 3: Dashboard
   return (
     <div className={`min-h-screen ${isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
       {floatingBar}
@@ -384,6 +390,41 @@ export default function App() {
             <option value="USD">USD ($)</option>
             <option value="EUR">EUR (€)</option>
           </select>
+          <button
+            onClick={async () => {
+              const symbols = holdings.filter((h) => h.category === 'EQUITY').map((h) => h.symbol);
+              const vaultRes = db.exec("SELECT value FROM app_config WHERE key = 'vault_id'");
+              const vaultId = (vaultRes[0]?.values[0]?.[0] as string) || 'anon';
+              setStatusMsg('Fetching anonymous quotes via Cloudflare Edge...');
+              try {
+                const res = await fetch(`/api/quotes?symbols=${encodeURIComponent(symbols.join(','))}`, {
+                  headers: { 'X-Vault-Id': vaultId, 'X-Base-Currency': baseCurrency },
+                });
+                if (!res.ok) throw new Error();
+                const data = await res.json();
+                if (data.fxRates) setFxRates(data.fxRates);
+                if (data.quotes) {
+                  db.run('BEGIN TRANSACTION');
+                  for (const [sym, price] of Object.entries(data.quotes)) {
+                    if (Number(price) > 0) {
+                      db.run('UPDATE holdings SET market_price = ?, updated_at = CURRENT_TIMESTAMP WHERE symbol = ?', [
+                        Number(price),
+                        sym,
+                      ]);
+                    }
+                  }
+                  db.run('COMMIT');
+                  await persistEncryptedVault(db);
+                }
+                setStatusMsg('Live market prices & FX updated!');
+              } catch {
+                setStatusMsg('Using cached/CSV prices');
+              }
+            }}
+            className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg text-xs font-semibold"
+          >
+            <RefreshCw className="w-3.5 h-3.5" /> Prices
+          </button>
           <button
             onClick={() =>
               withGoogleAuth(async (token) => {

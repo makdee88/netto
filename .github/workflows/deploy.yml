@@ -38,7 +38,7 @@ jobs:
           fi
 
           # Automatically create the Pages project if it doesn't exist yet
-          npx wrangler pages project create netto --production-branch=main || true
+          # npx wrangler pages project create netto --production-branch=main || true
 
           # Deploy the dist folder
           npx wrangler pages deploy dist --project-name=netto --branch=$TARGET_BRANCH

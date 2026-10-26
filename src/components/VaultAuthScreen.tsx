@@ -125,25 +125,23 @@ export const VaultAuthScreen: React.FC<VaultAuthScreenProps> = ({
           </div>
         </div>
 
-        {/* Authenticated User Status Box */}
-        {userEmail && (
-          <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-950/80 border border-emerald-500/20 text-xs">
-            <div className="flex items-center gap-2">
-              <UserCheck className="w-4 h-4 text-emerald-400" />
+        {/* User Identity Banner */}
+        {userEmail ? (
+          <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-950 border border-emerald-500/30 text-xs shadow-inner">
+            <div className="flex items-center gap-2.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
               <div>
                 <span className="text-[10px] uppercase font-bold text-emerald-400 block leading-none">
                   Authenticated User
                 </span>
-                <span className="font-semibold text-slate-200">{userEmail}</span>
+                <span className="font-semibold text-slate-100 mt-0.5 block">{userEmail}</span>
               </div>
             </div>
-            {activeVaultName && (
-              <span className="px-2.5 py-1 rounded-lg bg-indigo-600/30 text-indigo-300 font-mono text-xs font-semibold">
-                {activeVaultName}
-              </span>
-            )}
+            <span className="px-2.5 py-1 rounded-lg bg-indigo-600/30 text-indigo-300 font-mono text-xs font-semibold border border-indigo-500/20">
+              {activeVaultName || 'Personal'}
+            </span>
           </div>
-        )}
+        ) : null}
 
         <div className="space-y-1">
           <div className="flex items-center gap-2">
