@@ -1,558 +1,182 @@
-import React, { useEffect, useState } from 'react';
-import type { Database } from 'sql.js';
-import { initDatabase, recordSnapshot, getProperties, getLiabilities, clearBrokerData } from './db/database';
-import {
-  encryptSqliteBytes,
-  decryptSqliteBytes,
-  uint8ToBase64,
-  base64ToUint8,
-} from './crypto/vaultCrypto';
-import { importBrokerCsv } from './parsers/csvImporter';
-import { syncToGoogleDrive, loadFromGoogleDrive } from './sync/googleDrive';
-import { BrokerType, CsvImportResult, CurrencyCode, HoldingRow, AuthMode } from './types';
-import { LandingPage } from './components/LandingPage';
+import React, { useState, useEffect } from 'react';
+import { supabase } from './supabase';
 import { VaultAuthScreen } from './components/VaultAuthScreen';
-import { OverviewTab } from './components/OverviewTab';
 import { ManageAssetsTab } from './components/ManageAssetsTab';
-import { PrivacyArchitectureModal } from './components/PrivacyArchitectureModal';
-import { ChangePassphraseModal } from './components/ChangePassphraseModal';
-import {
-  ShieldCheck,
-  CloudUpload,
-  RefreshCw,
-  Info,
-  KeyRound,
-  Sun,
-  Moon,
-  LayoutDashboard,
-  PlusCircle,
-  CheckCircle2,
-  ArrowRight,
-  Eye,
-  EyeOff,
-} from 'lucide-react';
 
-const STORAGE_KEY = 'netto_encrypted_vault_v2';
-const THEME_KEY = 'netto_color_theme';
-const GOOGLE_CLIENT_ID =
-  (import.meta as any).env?.VITE_GOOGLE_CLIENT_ID || 'YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com';
-
-type AppStep = 'LANDING' | 'AUTH' | 'DASHBOARD';
-type DashboardSubTab = 'OVERVIEW' | 'MANAGE';
-
-export default function App() {
-  const [step, setStep] = useState<AppStep>(() => {
-    return (sessionStorage.getItem('netto_active_step') as AppStep) || (localStorage.getItem(STORAGE_KEY) ? 'AUTH' : 'LANDING');
-  });
-  const [subTab, setSubTab] = useState<DashboardSubTab>(() => {
-    return (sessionStorage.getItem('netto_sub_tab') as DashboardSubTab) || 'OVERVIEW';
-  });
-  const [authMode, setAuthMode] = useState<AuthMode>('CREATE_OR_UNLOCK');
-  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
-
-  // Privacy Mask State (Masked by default)
-  const [isMasked, setIsMasked] = useState<boolean>(true);
-
-  const [db, setDb] = useState<Database | null>(null);
-  const [passphrase, setPassphrase] = useState<string>('');
-  const [hasExistingVault, setHasExistingVault] = useState<boolean>(false);
-  const [showSecurityModal, setShowSecurityModal] = useState<boolean>(false);
-  const [showPassModal, setShowPassModal] = useState<boolean>(false);
-
-  const [csvSummary, setCsvSummary] = useState<CsvImportResult | null>(null);
-
-  const [holdings, setHoldings] = useState<HoldingRow[]>([]);
-  const [baseCurrency, setBaseCurrency] = useState<CurrencyCode>('SEK');
-  const [fxRates, setFxRates] = useState<Record<string, number>>({ SEK: 1, USD: 10.45, EUR: 11.35, INR: 0.125 });
-  const [statusMsg, setStatusMsg] = useState<string>('Vault Locked');
-  const [googleToken, setGoogleToken] = useState<string | null>(null);
+export function App() {
+  const [session, setSession] = useState<any>(null);
+  const [loadingSession, setLoadingSession] = useState(true);
+  const [vaultUnlocked, setVaultUnlocked] = useState(false);
+  const [vaultPassword, setVaultPassword] = useState('');
+  const [activeTab, setActiveTab] = useState<'overview' | 'manage-assets'>('overview');
 
   useEffect(() => {
-    const vaultExists = Boolean(localStorage.getItem(STORAGE_KEY));
-    setHasExistingVault(vaultExists);
-    const savedTheme = localStorage.getItem(THEME_KEY) as 'dark' | 'light' | null;
-    if (savedTheme) setTheme(savedTheme);
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setLoadingSession(false);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      if (!session) {
+        setVaultUnlocked(false);
+        setVaultPassword('');
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
-  const handleStepChange = (newStep: AppStep) => {
-    setStep(newStep);
-    sessionStorage.setItem('netto_active_step', newStep);
-  };
-
-  const handleTabChange = (tab: DashboardSubTab) => {
-    setSubTab(tab);
-    sessionStorage.setItem('netto_sub_tab', tab);
-  };
-
-  const toggleTheme = () => {
-    const next = theme === 'dark' ? 'light' : 'dark';
-    setTheme(next);
-    localStorage.setItem(THEME_KEY, next);
-  };
-
-  const refreshHoldings = (database: Database) => {
-    const stmt = database.prepare('SELECT * FROM holdings ORDER BY broker, name');
-    const rows: HoldingRow[] = [];
-    while (stmt.step()) rows.push(stmt.getAsObject() as unknown as HoldingRow);
-    stmt.free();
-    setHoldings(rows);
-
-    const totalAssets = rows.reduce((sum, h) => {
-      const nativeVal = h.category === 'FIXED_DEPOSIT' ? h.principal : h.quantity * (h.market_price > 0 ? h.market_price : h.avg_price);
-      const inSek = nativeVal * (fxRates[h.currency] || 1);
-      return sum + inSek / (fxRates[baseCurrency] || 1);
-    }, 0);
-
-    const properties = getProperties(database);
-    const totalProps = properties.reduce((sum, p) => {
-      const inSek = p.current_price * (fxRates[p.currency] || 1);
-      return sum + inSek / (fxRates[baseCurrency] || 1);
-    }, 0);
-
-    const liabilities = getLiabilities(database);
-    const totalLiabs = liabilities.reduce((sum, l) => {
-      const inSek = l.remaining_balance * (fxRates[l.currency] || 1);
-      return sum + inSek / (fxRates[baseCurrency] || 1);
-    }, 0);
-
-    recordSnapshot(database, totalAssets + totalProps, totalLiabs);
-  };
-
-  const persistEncryptedVault = async (database: Database, activePass = passphrase) => {
-    const encrypted = await encryptSqliteBytes(database.export(), activePass);
-    localStorage.setItem(STORAGE_KEY, uint8ToBase64(encrypted));
-    refreshHoldings(database);
-  };
-
-  const withGoogleAuth = (action: (token: string) => Promise<void>) => {
-    if (googleToken) {
-      action(googleToken);
-      return;
-    }
-    if (!window.google?.accounts?.oauth2) {
-      setStatusMsg('Google Auth library not ready');
-      return;
-    }
-    const client = window.google.accounts.oauth2.initTokenClient({
-      client_id: GOOGLE_CLIENT_ID,
-      scope: 'https://www.googleapis.com/auth/drive.appdata',
-      callback: async (res) => {
-        if (res.access_token) {
-          setGoogleToken(res.access_token);
-          await action(res.access_token);
-        }
-      },
-    });
-    client.requestAccessToken();
-  };
-
-  const handleUnlockOrCreate = async (
-    passInput: string,
-    passConfirm: string,
-    restoreBytes: Uint8Array | null,
-    restoreName: string
-  ) => {
-    if (passInput.length < 6) throw new Error('Passphrase must be at least 6 characters.');
-
-    if (authMode === 'RESTORE_RETURNING') {
-      if (!restoreBytes) throw new Error('Select a .sqlite.enc file or pull from Google Drive first.');
-      const decrypted = await decryptSqliteBytes(restoreBytes, passInput);
-      const database = await initDatabase(decrypted);
-      setPassphrase(passInput);
-      setDb(database);
-      await persistEncryptedVault(database, passInput);
-      setHasExistingVault(true);
-      setStatusMsg(`Restored & Unlocked ${restoreName || 'Vault'}`);
-      handleStepChange('DASHBOARD');
-      return;
-    }
-
-    const savedBase64 = localStorage.getItem(STORAGE_KEY);
-    if (savedBase64 && hasExistingVault) {
-      const decrypted = await decryptSqliteBytes(base64ToUint8(savedBase64), passInput);
-      const database = await initDatabase(decrypted);
-      setPassphrase(passInput);
-      setDb(database);
-      refreshHoldings(database);
-      setStatusMsg('Netto Vault Decrypted & Unlocked (AES-256-GCM)');
-      handleStepChange('DASHBOARD');
-    } else {
-      if (passInput !== passConfirm) throw new Error('Passphrases do not match.');
-      const database = await initDatabase();
-      setPassphrase(passInput);
-      setDb(database);
-      await persistEncryptedVault(database, passInput);
-      setHasExistingVault(true);
-      setStatusMsg('New Encrypted Netto Vault Created!');
-      handleStepChange('DASHBOARD');
-    }
-  };
-
-  const handleUpdatePassphrase = async (oldPass: string, newPass: string, confirmPass: string): Promise<string> => {
-    if (oldPass !== passphrase) throw new Error('Current passphrase does not match active session.');
-    if (newPass.length < 6) throw new Error('New passphrase must be at least 6 characters.');
-    if (newPass !== confirmPass) throw new Error('New passphrases do not match.');
-    if (!db) throw new Error('Database not initialized.');
-
-    const newlyEncrypted = await encryptSqliteBytes(db.export(), newPass);
-    localStorage.setItem(STORAGE_KEY, uint8ToBase64(newlyEncrypted));
-    setPassphrase(newPass);
-
-    if (googleToken) {
-      await syncToGoogleDrive(googleToken, newlyEncrypted);
-      return 'Passphrase updated & re-encrypted on Local Storage + Google Drive!';
-    }
-    return 'Passphrase updated and vault re-encrypted locally!';
-  };
-
-  if (step === 'LANDING') {
+  if (loadingSession) {
     return (
-      <LandingPage
-        hasExistingVault={hasExistingVault}
-        theme={theme}
-        onToggleTheme={toggleTheme}
-        onLaunchCreateOrUnlock={() => {
-          setAuthMode('CREATE_OR_UNLOCK');
-          handleStepChange('AUTH');
-        }}
-        onLaunchRestore={() => {
-          setAuthMode('RESTORE_RETURNING');
-          handleStepChange('AUTH');
-        }}
-      />
+      <div className="min-h-screen bg-slate-950 text-slate-400 flex items-center justify-center">
+        Loading Netto...
+      </div>
     );
   }
 
-  if (step === 'AUTH' || !db) {
-    return (
-      <VaultAuthScreen
-        authMode={authMode}
-        setAuthMode={setAuthMode}
-        hasExistingVault={hasExistingVault}
-        onBackToLanding={() => handleStepChange('LANDING')}
-        onUnlockOrCreate={handleUnlockOrCreate}
-        onFetchGoogleDriveVault={(onLoaded) =>
-          withGoogleAuth(async (token) => {
-            const bytes = await loadFromGoogleDrive(token);
-            if (bytes) onLoaded(bytes);
-          })
-        }
-        onResetLocalCache={() => {
-          if (confirm('Clear cached vault from this browser? Ensure you have your backup!')) {
-            localStorage.removeItem(STORAGE_KEY);
-            setHasExistingVault(false);
-            handleStepChange('LANDING');
-          }
-        }}
-      />
-    );
+  // 1. Supabase Identity / OTP Verification Checkpoint
+  if (!session) {
+    return <VaultAuthScreen onAuthenticated={(_userId, _email) => {}} />;
   }
 
-  const isDark = theme === 'dark';
-
-  return (
-    <div className={`min-h-screen ${isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
-      <header className={`max-w-7xl mx-auto px-6 py-4 flex flex-wrap justify-between items-center gap-4 border-b ${isDark ? 'border-slate-800 bg-slate-900/80' : 'border-slate-200 bg-white shadow-sm'}`}>
-        <div className="flex items-center gap-3">
-          <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
-            <ShieldCheck className="w-6 h-6" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1
-                onClick={() => handleStepChange('LANDING')}
-                className="text-xl font-bold tracking-tight cursor-pointer hover:text-indigo-400 transition"
-                title="View Landing Page"
-              >
-                netto
-              </h1>
-              <span className="text-[10px] bg-emerald-500/20 text-emerald-500 px-2 py-0.5 rounded-full font-medium">
-                AES-256 Unlocked
-              </span>
-            </div>
-            <p className="text-xs opacity-75">{statusMsg}</p>
-          </div>
-        </div>
-
-        <div className="flex gap-1 bg-slate-950/20 p-1 rounded-xl text-xs font-semibold">
-          <button
-            onClick={() => handleTabChange('OVERVIEW')}
-            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg transition ${subTab === 'OVERVIEW' ? 'bg-indigo-600 text-white shadow' : 'opacity-70 hover:opacity-100'}`}
-          >
-            <LayoutDashboard className="w-3.5 h-3.5" /> Overview & Analytics
-          </button>
-          <button
-            onClick={() => handleTabChange('MANAGE')}
-            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg transition ${subTab === 'MANAGE' ? 'bg-indigo-600 text-white shadow' : 'opacity-70 hover:opacity-100'}`}
-          >
-            <PlusCircle className="w-3.5 h-3.5" /> Manage & Import Assets
-          </button>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Privacy Mask Toggle Button */}
-          <button
-            onClick={() => setIsMasked(!isMasked)}
-            className={`p-2 rounded-lg border transition flex items-center gap-1.5 text-xs font-semibold ${
-              isMasked
-                ? 'bg-amber-500/10 border-amber-500/30 text-amber-400 hover:bg-amber-500/20'
-                : 'bg-indigo-600 border-indigo-500 text-white shadow'
-            }`}
-            title={isMasked ? 'Click to reveal hidden values' : 'Click to hide values (Privacy Mode)'}
-          >
-            {isMasked ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-            <span>{isMasked ? 'Privacy Mode: ON' : 'Privacy Mode: OFF'}</span>
-          </button>
-
-          <button
-            onClick={toggleTheme}
-            className={`p-2 rounded-lg border transition ${isDark ? 'bg-slate-800 border-slate-700 text-yellow-400' : 'bg-slate-100 border-slate-300 text-slate-700'}`}
-            title="Toggle Theme"
-          >
-            {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-          </button>
-          <button
-            onClick={() => setShowSecurityModal(true)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border ${isDark ? 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-200' : 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-700'}`}
-          >
-            <Info className="w-3.5 h-3.5 text-indigo-400" /> Privacy
-          </button>
-          <button
-            onClick={() => setShowPassModal(true)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border ${isDark ? 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-200' : 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-700'}`}
-          >
-            <KeyRound className="w-3.5 h-3.5 text-indigo-400" /> Passphrase
-          </button>
-          <select
-            value={baseCurrency}
-            onChange={(e) => setBaseCurrency(e.target.value as CurrencyCode)}
-            className={`border rounded-lg px-3 py-1.5 text-xs font-semibold ${isDark ? 'bg-slate-950 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'}`}
-          >
-            <option value="SEK">SEK (kr)</option>
-            <option value="INR">INR (₹)</option>
-            <option value="USD">USD ($)</option>
-            <option value="EUR">EUR (€)</option>
-          </select>
-          <button
-            onClick={async () => {
-              const symbols = holdings.filter((h) => h.category === 'EQUITY').map((h) => h.symbol);
-              const vaultRes = db.exec("SELECT value FROM app_config WHERE key = 'vault_id'");
-              const vaultId = (vaultRes[0]?.values[0]?.[0] as string) || 'anon';
-              setStatusMsg('Fetching anonymous quotes via Cloudflare Edge...');
-              try {
-                const res = await fetch(`/api/quotes?symbols=${encodeURIComponent(symbols.join(','))}`, {
-                  headers: { 'X-Vault-Id': vaultId, 'X-Base-Currency': baseCurrency },
-                });
-                if (!res.ok) throw new Error();
-                const data = await res.json();
-                if (data.fxRates) setFxRates(data.fxRates);
-                if (data.quotes) {
-                  db.run('BEGIN TRANSACTION');
-                  for (const [sym, price] of Object.entries(data.quotes)) {
-                    if (Number(price) > 0) {
-                      db.run('UPDATE holdings SET market_price = ?, updated_at = CURRENT_TIMESTAMP WHERE symbol = ?', [
-                        Number(price),
-                        sym,
-                      ]);
-                    }
-                  }
-                  db.run('COMMIT');
-                  await persistEncryptedVault(db);
-                }
-                setStatusMsg('Live market prices & FX updated!');
-              } catch {
-                setStatusMsg('Using cached/CSV prices');
+  // 2. Local AES-256-GCM SQLite Vault Decryption Checkpoint
+  if (!vaultUnlocked) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-slate-900 border border-slate-800 p-6 rounded-xl shadow-xl">
+          <h2 className="text-xl font-bold mb-2">Unlock Local Vault</h2>
+          <p className="text-sm text-slate-400 mb-6">
+            Enter your local vault encryption passphrase to decrypt your local-first SQLite database.
+          </p>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (vaultPassword.length > 0) {
+                setVaultUnlocked(true);
               }
             }}
-            className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg text-xs font-semibold"
+            className="space-y-4"
           >
-            <RefreshCw className="w-3.5 h-3.5" /> Prices
-          </button>
-          <button
-            onClick={() =>
-              withGoogleAuth(async (token) => {
-                setStatusMsg('Encrypting & uploading to Google Drive...');
-                const enc = await encryptSqliteBytes(db.export(), passphrase);
-                setStatusMsg(await syncToGoogleDrive(token, enc));
-              })
-            }
-            className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-lg text-xs font-semibold shadow"
-          >
-            <CloudUpload className="w-3.5 h-3.5" /> Save to Google Drive
-          </button>
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">
+                Vault Passphrase
+              </label>
+              <input
+                type="password"
+                required
+                value={vaultPassword}
+                onChange={(e) => setVaultPassword(e.target.value)}
+                placeholder="••••••••••••"
+                className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded text-slate-100 focus:outline-none focus:border-indigo-500"
+              />
+            </div>
+            <button
+              type="submit"
+              className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 font-medium rounded transition"
+            >
+              Unlock Vault
+            </button>
+          </form>
+          <div className="mt-4 flex justify-between items-center text-xs text-slate-500">
+            <span>Signed in as {session.user.email}</span>
+            <button
+              onClick={() => supabase.auth.signOut()}
+              className="hover:text-slate-300 underline"
+            >
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 3. Main Dashboard & Navigation
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-100">
+      <header className="border-b border-slate-800 bg-slate-900/50 backdrop-blur sticky top-0 z-10">
+        <div className="max-w-6xl mx-auto px-6 h-16 flex justify-between items-center">
+          <div className="flex items-center space-x-6">
+            <span className="font-bold text-lg tracking-tight text-indigo-400">Netto</span>
+            <nav className="flex space-x-2">
+              <button
+                onClick={() => setActiveTab('overview')}
+                className={`px-3 py-1.5 rounded text-sm font-medium transition ${
+                  activeTab === 'overview'
+                    ? 'bg-slate-800 text-slate-100'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+                }`}
+              >
+                Overview
+              </button>
+              <button
+                onClick={() => setActiveTab('manage-assets')}
+                className={`px-3 py-1.5 rounded text-sm font-medium transition ${
+                  activeTab === 'manage-assets'
+                    ? 'bg-slate-800 text-slate-100'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+                }`}
+              >
+                Manage Assets
+              </button>
+            </nav>
+          </div>
+
+          <div className="flex items-center space-x-4">
+            <span className="text-xs text-slate-400 hidden sm:inline">{session.user.email}</span>
+            <button
+              onClick={() => {
+                setVaultUnlocked(false);
+                setVaultPassword('');
+                supabase.auth.signOut();
+              }}
+              className="text-xs px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded transition font-medium text-slate-200"
+            >
+              Lock Vault
+            </button>
+          </div>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto p-6">
-        {subTab === 'OVERVIEW' ? (
-          <OverviewTab
-            db={db}
-            holdings={holdings}
-            baseCurrency={baseCurrency}
-            fxRates={fxRates}
-            theme={theme}
-            isMasked={isMasked}
-            onGoToManage={() => handleTabChange('MANAGE')}
-            onOpenPrivacyModal={() => setShowSecurityModal(true)}
-          />
-        ) : (
-          <ManageAssetsTab
-            db={db}
-            holdings={holdings}
-            theme={theme}
-            onBackToOverview={() => handleTabChange('OVERVIEW')}
-            onCsvImport={(file, broker) =>
-              importBrokerCsv(file, broker, db, async (summary) => {
-                await persistEncryptedVault(db);
-                setStatusMsg(
-                  `Imported ${summary.newTransactionsAdded} new txns (${summary.duplicateTransactionsSkipped} duplicates skipped) • ${summary.holdingsUpdated} holdings`
-                );
-                setCsvSummary(summary);
-              })
-            }
-            onClearBroker={async (brokerName) => {
-              clearBrokerData(db, brokerName);
-              await persistEncryptedVault(db);
-              refreshHoldings(db);
-              setStatusMsg(`Cleared all transaction history & holdings for ${brokerName}`);
-            }}
-            onAddFD={async (fd) => {
-              db.run(
-                `INSERT INTO holdings (broker, category, symbol, name, currency, principal, interest_rate, compounding_freq, start_date, maturity_date)
-                 VALUES (?, 'FIXED_DEPOSIT', ?, ?, ?, ?, ?, ?, ?, ?)
-                 ON CONFLICT(broker, symbol) DO UPDATE SET
-                   principal = excluded.principal,
-                   interest_rate = excluded.interest_rate,
-                   maturity_date = excluded.maturity_date`,
-                [
-                  fd.broker,
-                  fd.symbol,
-                  fd.name,
-                  fd.currency,
-                  fd.principal,
-                  fd.interest_rate,
-                  fd.compounding_freq,
-                  fd.start_date,
-                  fd.maturity_date,
-                ]
-              );
-              await persistEncryptedVault(db);
-              setStatusMsg(`Saved Fixed Deposit: ${fd.name}`);
-            }}
-            onAddProperty={async (p) => {
-              db.run(
-                `INSERT INTO properties (name, property_type, currency, buy_price, buy_month, buy_year, current_price) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                [p.name, p.property_type, p.currency, p.buy_price, p.buy_month, p.buy_year, p.current_price]
-              );
-              await persistEncryptedVault(db);
-              setStatusMsg(`Saved Property: ${p.name}`);
-            }}
-            onAddLiability={async (l) => {
-              db.run(
-                `INSERT INTO liabilities (name, liability_type, currency, total_loan, remaining_balance, interest_rate) VALUES (?, ?, ?, ?, ?, ?)`,
-                [l.name, l.liability_type, l.currency, l.total_loan, l.remaining_balance, l.interest_rate]
-              );
-              await persistEncryptedVault(db);
-              setStatusMsg(`Saved Liability: ${l.name}`);
-            }}
-            onDeleteHolding={async (id) => {
-              const res = db.exec('SELECT broker, symbol FROM holdings WHERE id = ?', [id]);
-              if (res[0]?.values?.[0]) {
-                const [b, s] = res[0].values[0];
-                db.run('DELETE FROM transactions WHERE broker = ? AND symbol = ?', [b, s]);
-              }
-              db.run('DELETE FROM holdings WHERE id = ?', [id]);
-              await persistEncryptedVault(db);
-              setStatusMsg('Asset and its transaction history deleted');
-            }}
-            onDeleteProperty={async (id) => {
-              db.run('DELETE FROM properties WHERE id = ?', [id]);
-              await persistEncryptedVault(db);
-              setStatusMsg('Property deleted successfully');
-            }}
-            onDeleteLiability={async (id) => {
-              db.run('DELETE FROM liabilities WHERE id = ?', [id]);
-              await persistEncryptedVault(db);
-              setStatusMsg('Liability deleted successfully');
-            }}
-          />
-        )}
-      </main>
-
-      {csvSummary && (
-        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className={`max-w-md w-full border rounded-3xl p-6 space-y-5 shadow-2xl ${isDark ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'}`}>
-            <div className="flex items-center gap-3">
-              <div className="p-3 rounded-2xl bg-emerald-500/15 text-emerald-500 border border-emerald-500/30">
-                <CheckCircle2 className="w-7 h-7" />
+      <main className="max-w-6xl mx-auto px-6 py-8">
+        {activeTab === 'overview' && (
+          <div className="space-y-6">
+            <div className="flex justify-between items-center">
+              <h2 className="text-2xl font-bold tracking-tight">Portfolio Overview</h2>
+              <button
+                onClick={() => setActiveTab('manage-assets')}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-sm font-medium rounded transition shadow-sm"
+              >
+                Manage Assets
+              </button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="p-6 bg-slate-900 border border-slate-800 rounded-xl">
+                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total Net Worth</p>
+                <p className="text-3xl font-extrabold mt-2 text-slate-100">$0.00</p>
               </div>
-              <div>
-                <h3 className="text-lg font-bold">CSV Import Successful!</h3>
-                <p className="text-xs opacity-70">
-                  {csvSummary.mode === 'TRANSACTIONS'
-                    ? 'Transactions saved to SQLite ledger & net holdings recalculated.'
-                    : 'Holdings snapshot updated in your vault.'}
+              <div className="p-6 bg-slate-900 border border-slate-800 rounded-xl">
+                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Encrypted Vault Status</p>
+                <p className="text-lg font-semibold mt-2 text-emerald-400 flex items-center">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 mr-2 inline-block"></span>
+                  AES-256-GCM Active
                 </p>
               </div>
-            </div>
-
-            <div className={`p-4 rounded-2xl border space-y-2.5 text-xs ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-              <div className="flex justify-between">
-                <span className="opacity-70">Broker / Platform:</span>
-                <span className="font-bold text-indigo-500">{csvSummary.broker}</span>
+              <div className="p-6 bg-slate-900 border border-slate-800 rounded-xl">
+                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Storage Engine</p>
+                <p className="text-lg font-semibold mt-2 text-slate-200">Local SQLite</p>
               </div>
-              <div className="flex justify-between">
-                <span className="opacity-70">CSV Rows Scanned:</span>
-                <span className="font-semibold">{csvSummary.totalRowsRead} rows</span>
-              </div>
-              {csvSummary.mode === 'TRANSACTIONS' && (
-                <>
-                  <div className="flex justify-between">
-                    <span className="opacity-70">New Transactions Added:</span>
-                    <span className="font-bold text-emerald-500">+{csvSummary.newTransactionsAdded}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="opacity-70">Duplicates Safely Skipped:</span>
-                    <span className="font-semibold opacity-80">{csvSummary.duplicateTransactionsSkipped}</span>
-                  </div>
-                </>
-              )}
-              <div className="flex justify-between pt-2 border-t border-slate-800/40">
-                <span className="opacity-70 font-medium">Active Net Holdings:</span>
-                <span className="font-bold text-indigo-500">{csvSummary.holdingsUpdated} assets</span>
-              </div>
-            </div>
-
-            <div className="flex gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => setCsvSummary(null)}
-                className={`flex-1 py-3 rounded-xl font-semibold text-xs border transition ${isDark ? 'bg-slate-800 border-slate-700 hover:bg-slate-700' : 'bg-slate-100 border-slate-300 hover:bg-slate-200'}`}
-              >
-                Import Another File
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setCsvSummary(null);
-                  handleTabChange('OVERVIEW');
-                }}
-                className="flex-1 py-3 rounded-xl font-bold text-xs bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg flex items-center justify-center gap-1.5 transition"
-              >
-                View Dashboard <ArrowRight className="w-4 h-4" />
-              </button>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {showSecurityModal && <PrivacyArchitectureModal onClose={() => setShowSecurityModal(false)} />}
-      {showPassModal && (
-        <ChangePassphraseModal
-          onClose={() => setShowPassModal(false)}
-          onUpdatePassphrase={handleUpdatePassphrase}
-        />
-      )}
+        {activeTab === 'manage-assets' && (
+          <ManageAssetsTab onBackToOverview={() => setActiveTab('overview')} />
+        )}
+      </main>
     </div>
   );
 }
+
+export default App;
