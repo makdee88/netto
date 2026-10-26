@@ -243,7 +243,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
           </div>
 
           {/* Step-by-Step Broker Export Guide */}
-          <BrokerGuide broker="{selectedBroker}" isDark="{isDark}"/>
+          <BrokerGuide broker={selectedBroker} isDark={isDark} />
 
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
