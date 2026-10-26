@@ -10,17 +10,23 @@ export function App() {
   const [vaultPassword, setVaultPassword] = useState('');
   const [activeTab, setActiveTab] = useState<'overview' | 'manage-assets'>('overview');
 
-  // Auth Screen State
-  const [authStep, setAuthStep] = useState<'email' | 'otp'>('email');
+  // Magic Link Auth State
   const [email, setEmail] = useState('');
   const [fullName, setFullName] = useState('');
-  const [otpToken, setOtpToken] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [magicLinkSent, setMagicLinkSent] = useState(false);
 
   useEffect(() => {
+    // Check initial session & handle magic link hash redirects
     supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
+      if (session) {
+        setSession(session);
+        // Clean URL hash if redirected from magic link
+        if (window.location.hash) {
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+      }
       setLoadingSession(false);
     });
 
@@ -37,7 +43,7 @@ export function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  const handleSendOtp = async (e: React.FormEvent) => {
+  const handleSendMagicLink = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthLoading(true);
     setAuthError(null);
@@ -45,6 +51,7 @@ export function App() {
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
+        emailRedirectTo: window.location.origin,
         data: {
           full_name: fullName,
         },
@@ -56,27 +63,7 @@ export function App() {
     if (error) {
       setAuthError(error.message);
     } else {
-      setAuthStep('otp');
-    }
-  };
-
-  const handleVerifyOtp = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setAuthLoading(true);
-    setAuthError(null);
-
-    const { data, error } = await supabase.auth.verifyOtp({
-      email,
-      token: otpToken,
-      type: 'email',
-    });
-
-    setAuthLoading(false);
-
-    if (error) {
-      setAuthError(error.message);
-    } else if (data.session) {
-      setSession(data.session);
+      setMagicLinkSent(true);
     }
   };
 
@@ -88,16 +75,14 @@ export function App() {
     );
   }
 
-  // 1. Supabase OTP Authentication Checkpoint
+  // 1. Supabase Magic Link Authentication Screen
   if (!session) {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4">
         <div className="max-w-md w-full bg-slate-900 border border-slate-800 p-6 rounded-xl shadow-xl">
           <h2 className="text-2xl font-bold mb-2">Netto Vault Access</h2>
           <p className="text-sm text-slate-400 mb-6">
-            {authStep === 'email'
-              ? 'Enter your email to receive a verification code.'
-              : `Enter the verification code sent to ${email}.`}
+            Sign in securely using a magic link sent to your email.
           </p>
 
           {authError && (
@@ -106,8 +91,23 @@ export function App() {
             </div>
           )}
 
-          {authStep === 'email' ? (
-            <form onSubmit={handleSendOtp} className="space-y-4">
+          {magicLinkSent ? (
+            <div className="p-4 bg-emerald-950/40 border border-emerald-800/60 rounded-lg text-center space-y-3">
+              <p className="text-sm text-emerald-200 font-medium">
+                Magic link sent to <span className="underline">{email}</span>!
+              </p>
+              <p className="text-xs text-slate-400">
+                Check your inbox and click the link to sign in automatically.
+              </p>
+              <button
+                onClick={() => setMagicLinkSent(false)}
+                className="text-xs text-indigo-400 hover:underline pt-2 block mx-auto"
+              >
+                Use a different email or resend
+              </button>
+            </div>
+          ) : (
+            <form onSubmit={handleSendMagicLink} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">
                   Full Name
@@ -141,39 +141,7 @@ export function App() {
                 disabled={authLoading}
                 className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 font-medium rounded transition disabled:opacity-50"
               >
-                {authLoading ? 'Sending Code...' : 'Send Verification Code'}
-              </button>
-            </form>
-          ) : (
-            <form onSubmit={handleVerifyOtp} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">
-                  Verification Code
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={otpToken}
-                  onChange={(e) => setOtpToken(e.target.value)}
-                  placeholder="123456"
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded text-center text-xl tracking-widest text-slate-100 focus:outline-none focus:border-indigo-500"
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={authLoading}
-                className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 font-medium rounded transition disabled:opacity-50"
-              >
-                {authLoading ? 'Verifying...' : 'Verify & Unlock'}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setAuthStep('email')}
-                className="w-full py-1 text-xs text-slate-400 hover:text-slate-200 transition"
-              >
-                Use a different email
+                {authLoading ? 'Sending Link...' : 'Send Magic Link'}
               </button>
             </form>
           )}
@@ -182,10 +150,29 @@ export function App() {
     );
   }
 
+  // Floating User Status Bar (visible during vault lock screen and dashboard)
+  const userStatusBar = (
+    <div className="absolute top-4 right-4 bg-slate-900/90 backdrop-blur border border-slate-800 px-3 py-1.5 rounded-full flex items-center space-x-3 text-xs shadow-lg z-50">
+      <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+      <span className="text-slate-300 font-medium">{session.user.email}</span>
+      <button
+        onClick={() => {
+          setVaultUnlocked(false);
+          setVaultPassword('');
+          supabase.auth.signOut();
+        }}
+        className="text-slate-400 hover:text-slate-100 bg-slate-800 px-2 py-0.5 rounded transition"
+      >
+        Sign Out
+      </button>
+    </div>
+  );
+
   // 2. Local AES-256-GCM SQLite Vault Decryption Checkpoint
   if (!vaultUnlocked) {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4 relative">
+        {userStatusBar}
         <div className="max-w-md w-full bg-slate-900 border border-slate-800 p-6 rounded-xl shadow-xl">
           <h2 className="text-xl font-bold mb-2">Unlock Local Vault</h2>
           <p className="text-sm text-slate-400 mb-6">
@@ -220,15 +207,6 @@ export function App() {
               Unlock Vault
             </button>
           </form>
-          <div className="mt-4 flex justify-between items-center text-xs text-slate-500">
-            <span>Signed in as {session.user.email}</span>
-            <button
-              onClick={() => supabase.auth.signOut()}
-              className="hover:text-slate-300 underline"
-            >
-              Sign Out
-            </button>
-          </div>
         </div>
       </div>
     );
@@ -236,9 +214,10 @@ export function App() {
 
   // 3. Main Dashboard & Navigation
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <div className="min-h-screen bg-slate-950 text-slate-100 relative">
+      {userStatusBar}
       <header className="border-b border-slate-800 bg-slate-900/50 backdrop-blur sticky top-0 z-10">
-        <div className="max-w-6xl mx-auto px-6 h-16 flex justify-between items-center">
+        <div className="max-w-6xl mx-auto px-6 h-16 flex justify-between items-center pr-48">
           <div className="flex items-center space-x-6">
             <span className="font-bold text-lg tracking-tight text-indigo-400">Netto</span>
             <nav className="flex space-x-2">
@@ -263,20 +242,6 @@ export function App() {
                 Manage Assets
               </button>
             </nav>
-          </div>
-
-          <div className="flex items-center space-x-4">
-            <span className="text-xs text-slate-400 hidden sm:inline">{session.user.email}</span>
-            <button
-              onClick={() => {
-                setVaultUnlocked(false);
-                setVaultPassword('');
-                supabase.auth.signOut();
-              }}
-              className="text-xs px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded transition font-medium text-slate-200"
-            >
-              Lock Vault
-            </button>
           </div>
         </div>
       </header>
