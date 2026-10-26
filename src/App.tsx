@@ -573,7 +573,7 @@ export default function App() {
           hasExistingVault={hasExistingVault}
           onBackToLanding={() => handleStepChange('LANDING')}
           onUnlockOrCreate={handleUnlockOrCreate}
-          onFetchGoogleDriveVault={(onLoaded) =>
+          onFetchGoogleDriveVault={(onLoaded: (bytes: Uint8Array) => void) =>
             withGoogleAuth(async (token) => {
               const bytes = await loadFromGoogleDrive(token);
               if (bytes) onLoaded(bytes);
