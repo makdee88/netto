@@ -53,7 +53,7 @@ export async function syncToGoogleDrive(
     let uploadRes: Response;
 
     if (existingFile) {
-      // Direct media PATCH for existing file
+      // Pass the underlying ArrayBuffer slice as BodyInit
       uploadRes = await fetch(
         `https://www.googleapis.com/upload/drive/v3/files/${existingFile.id}?uploadType=media`,
         {
@@ -62,18 +62,24 @@ export async function syncToGoogleDrive(
             Authorization: `Bearer ${accessToken}`,
             'Content-Type': 'application/octet-stream',
           },
-          body: encryptedBytes,
+          body: encryptedBytes.buffer.slice(
+            encryptedBytes.byteOffset,
+            encryptedBytes.byteOffset + encryptedBytes.byteLength
+          ) as ArrayBuffer,
         }
       );
     } else {
-      // Multipart POST for new file
+      // Pass the composite payload ArrayBuffer slice as BodyInit
       uploadRes = await fetch(DRIVE_UPLOAD_URL, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${accessToken}`,
           'Content-Type': `multipart/related; boundary=${boundary}`,
         },
-        body: fullPayload,
+        body: fullPayload.buffer.slice(
+          fullPayload.byteOffset,
+          fullPayload.byteOffset + fullPayload.byteLength
+        ) as ArrayBuffer,
       });
     }
 
