@@ -44,6 +44,7 @@ import {
 } from 'lucide-react';
 
 const THEME_KEY = 'netto_color_theme';
+const GDRIVE_TOKEN_KEY = 'netto_gdrive_token';
 const GOOGLE_CLIENT_ID =
   ((import.meta as any).env?.VITE_GOOGLE_CLIENT_ID as string) ||
   'YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com';
@@ -81,7 +82,7 @@ export default function App() {
   const [passphrase, setPassphrase] = useState<string>('');
   const [showSecurityModal, setShowSecurityModal] = useState<boolean>(false);
   const [showPassModal, setShowPassModal] = useState<boolean>(false);
-  const [csvSummary, setCsvSummary] = useState<CsvImportResult | null>(null);
+  const [_csvSummary, setCsvSummary] = useState<CsvImportResult | null>(null);
 
   const [holdings, setHoldings] = useState<HoldingRow[]>([]);
   const [baseCurrency, setBaseCurrency] = useState<CurrencyCode>('SEK');
@@ -92,7 +93,9 @@ export default function App() {
     INR: 0.125,
   });
   const [statusMsg, setStatusMsg] = useState<string>('Vault Locked');
-  const [googleToken, setGoogleToken] = useState<string | null>(null);
+  const [googleToken, setGoogleToken] = useState<string | null>(() => {
+    return sessionStorage.getItem(GDRIVE_TOKEN_KEY);
+  });
 
   const handleStepChange = (newStep: AppStep) => {
     setStep(newStep);
@@ -104,7 +107,7 @@ export default function App() {
     sessionStorage.setItem('netto_sub_tab', tab);
   };
 
-  // 1. Initialize Theme & Supabase Auth Session
+  // 1. Theme and Supabase Auth Subscription
   useEffect(() => {
     const savedTheme = localStorage.getItem(THEME_KEY) as 'dark' | 'light' | null;
     if (savedTheme) setTheme(savedTheme);
@@ -118,6 +121,13 @@ export default function App() {
       if (error) console.error('[Netto Auth Error]:', error);
       if (data?.session) {
         setSession(data.session);
+
+        // Capture provider token from initial redirect if present
+        if (data.session.provider_token) {
+          setGoogleToken(data.session.provider_token);
+          sessionStorage.setItem(GDRIVE_TOKEN_KEY, data.session.provider_token);
+        }
+
         if (isOAuthRedirect) {
           window.history.replaceState({}, document.title, window.location.pathname);
           handleStepChange('AUTH');
@@ -131,6 +141,11 @@ export default function App() {
     } = supabase.auth.onAuthStateChange((event: AuthChangeEvent, currentSession: Session | null) => {
       setSession(currentSession);
 
+      if (currentSession?.provider_token) {
+        setGoogleToken(currentSession.provider_token);
+        sessionStorage.setItem(GDRIVE_TOKEN_KEY, currentSession.provider_token);
+      }
+
       if (event === 'SIGNED_IN' && currentSession) {
         handleStepChange('AUTH');
       }
@@ -139,6 +154,8 @@ export default function App() {
         setDb(null);
         setPassphrase('');
         setHoldings([]);
+        setGoogleToken(null);
+        sessionStorage.removeItem(GDRIVE_TOKEN_KEY);
         handleStepChange('LANDING');
       }
     });
@@ -204,42 +221,54 @@ export default function App() {
     refreshHoldings(database);
   };
 
-const withGoogleAuth = async (action: (token: string) => Promise<void>) => {
-    // 1. Check if user logged in via Google OAuth and has a valid provider token
-    const token = session?.provider_token || googleToken;
+  // Google Drive token resolution: Supabase provider_token -> sessionStorage -> Google Identity Services fallback
+  const withGoogleAuth = async (action: (token: string) => Promise<void>) => {
+    const token =
+      googleToken ||
+      session?.provider_token ||
+      sessionStorage.getItem(GDRIVE_TOKEN_KEY);
 
     if (token) {
       try {
         await action(token);
         return;
       } catch (err: any) {
-        console.warn('Cached / provider token expired or invalid, prompting via GIS...', err);
-        // Fall through to interactive prompt if the token failed
+        console.warn('Drive token rejected or expired, requesting fresh token via GIS...', err);
+        sessionStorage.removeItem(GDRIVE_TOKEN_KEY);
+        setGoogleToken(null);
       }
     }
 
-    // 2. Fallback: Interactive Google prompt for GitHub, Magic Link, or expired sessions
     if (!window.google?.accounts?.oauth2) {
-      setStatusMsg('Google Auth library is still loading. Please try again in a moment.');
+      alert('Google Auth library not ready. Check that https://accounts.google.com/gsi/client is present.');
+      setStatusMsg('Google Auth library not loaded');
       return;
     }
 
-    const client = window.google.accounts.oauth2.initTokenClient({
-      client_id: GOOGLE_CLIENT_ID,
-      scope: 'https://www.googleapis.com/auth/drive.appdata',
-      callback: async (res) => {
-        if (res.error) {
-          setStatusMsg(`Google Drive connection error: ${res.error}`);
-          return;
-        }
-        if (res.access_token) {
-          setGoogleToken(res.access_token);
-          await action(res.access_token);
-        }
-      },
-    });
+    try {
+      const client = window.google.accounts.oauth2.initTokenClient({
+        client_id: GOOGLE_CLIENT_ID,
+        scope: 'https://www.googleapis.com/auth/drive.appdata',
+        callback: async (res) => {
+          if (res.error) {
+            console.error('Google token error:', res);
+            alert(`Google Drive permission error: ${res.error_description || res.error}`);
+            setStatusMsg('Google Drive access rejected');
+            return;
+          }
+          if (res.access_token) {
+            setGoogleToken(res.access_token);
+            sessionStorage.setItem(GDRIVE_TOKEN_KEY, res.access_token);
+            await action(res.access_token);
+          }
+        },
+      });
 
-    client.requestAccessToken();
+      client.requestAccessToken({ prompt: '' });
+    } catch (err: any) {
+      console.error('Failed to trigger Google Token Client:', err);
+      alert(`Google Auth Error: ${err?.message || err}`);
+    }
   };
 
   const handleUnlockOrCreate = async (
@@ -285,6 +314,25 @@ const withGoogleAuth = async (action: (token: string) => Promise<void>) => {
     }
   };
 
+  const handleSignOut = async () => {
+    try {
+      setDb(null);
+      setPassphrase('');
+      setHoldings([]);
+      setSession(null);
+      setGoogleToken(null);
+      sessionStorage.removeItem(GDRIVE_TOKEN_KEY);
+      sessionStorage.removeItem('netto_active_step');
+
+      await supabase.auth.signOut({ scope: 'local' });
+      handleStepChange('LANDING');
+      setStatusMsg('Logged out');
+    } catch (err) {
+      console.error('Logout error:', err);
+      handleStepChange('LANDING');
+    }
+  };
+
   const isDark = theme === 'dark';
 
   if (loadingSession) {
@@ -321,16 +369,11 @@ const withGoogleAuth = async (action: (token: string) => Promise<void>) => {
         setHoldings([]);
         handleStepChange('AUTH');
       }}
-      onLogout={async () => {
-        setDb(null);
-        setPassphrase('');
-        await supabase.auth.signOut();
-        handleStepChange('LANDING');
-      }}
+      onLogout={handleSignOut}
     />
   ) : null;
 
-  // STEP 1: Landing Page (Always accessible if step is LANDING, logged in or not)
+  // STEP 1: Landing Page
   if (step === 'LANDING') {
     return (
       <>
@@ -525,7 +568,8 @@ const withGoogleAuth = async (action: (token: string) => Promise<void>) => {
                   `Encrypting & uploading [netto_vault_${activeVaultName}.sqlite.enc]...`
                 );
                 const enc = await encryptSqliteBytes(db.export(), passphrase);
-                setStatusMsg(await syncToGoogleDrive(token, enc, activeVaultName));
+                const msg = await syncToGoogleDrive(token, enc, activeVaultName);
+                setStatusMsg(msg);
               })
             }
             className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-lg text-xs font-semibold shadow"
