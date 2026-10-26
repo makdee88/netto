@@ -29,7 +29,6 @@ export function useVaultManager(session: Session | null) {
     const savedListRaw = localStorage.getItem(listKey);
     let list: string[] = savedListRaw ? JSON.parse(savedListRaw) : [userEmail];
 
-    // Auto-migrate legacy un-namespaced vault to user's primary email vault if exists
     const legacyVault = localStorage.getItem(LEGACY_STORAGE_KEY);
     const emailVaultKey = getVaultStorageKey(userEmail, userEmail);
     if (legacyVault && !localStorage.getItem(emailVaultKey)) {
@@ -42,7 +41,6 @@ export function useVaultManager(session: Session | null) {
 
     setVaultList(list);
 
-    // If current selected name isn't set or is generic 'Personal', prefer user's email
     const savedActive = sessionStorage.getItem('netto_active_vault_name');
     const selected = savedActive && list.includes(savedActive) ? savedActive : userEmail;
 
@@ -68,6 +66,31 @@ export function useVaultManager(session: Session | null) {
     sessionStorage.setItem('netto_active_vault_name', cleaned);
   };
 
+  const deleteVaultSlot = (targetVaultName: string) => {
+    if (!userEmail) return;
+    if (targetVaultName === userEmail) {
+      alert('The primary default vault cannot be deleted.');
+      return;
+    }
+
+    // 1. Remove encrypted blob from localStorage
+    const storageKey = getVaultStorageKey(userEmail, targetVaultName);
+    localStorage.removeItem(storageKey);
+
+    // 2. Update saved vault list
+    const updatedList = vaultList.filter((v) => v !== targetVaultName);
+    const finalList = updatedList.length > 0 ? updatedList : [userEmail];
+    setVaultList(finalList);
+    localStorage.setItem(getVaultListKey(userEmail), JSON.stringify(finalList));
+
+    // 3. Fallback if the active vault was deleted
+    if (activeVaultName === targetVaultName) {
+      const fallback = finalList[0] || userEmail;
+      setActiveVaultName(fallback);
+      sessionStorage.setItem('netto_active_vault_name', fallback);
+    }
+  };
+
   return {
     vaultList,
     setVaultList,
@@ -77,5 +100,6 @@ export function useVaultManager(session: Session | null) {
     setHasExistingVault,
     activeStorageKey,
     createVaultSlot,
+    deleteVaultSlot,
   };
 }

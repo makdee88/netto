@@ -2,8 +2,19 @@ import React, { useEffect, useState } from 'react';
 import type { Database } from 'sql.js';
 import { Session } from '@supabase/supabase-js';
 import { supabase } from './supabase';
-import { initDatabase, recordSnapshot, getProperties, getLiabilities, clearBrokerData } from './db/database';
-import { encryptSqliteBytes, decryptSqliteBytes, uint8ToBase64, base64ToUint8 } from './crypto/vaultCrypto';
+import {
+  initDatabase,
+  recordSnapshot,
+  getProperties,
+  getLiabilities,
+  clearBrokerData,
+} from './db/database';
+import {
+  encryptSqliteBytes,
+  decryptSqliteBytes,
+  uint8ToBase64,
+  base64ToUint8,
+} from './crypto/vaultCrypto';
 import { importBrokerCsv } from './parsers/csvImporter';
 import { syncToGoogleDrive, loadFromGoogleDrive } from './sync/googleDrive';
 import { CsvImportResult, CurrencyCode, HoldingRow, AuthMode } from './types';
@@ -34,7 +45,8 @@ import {
 
 const THEME_KEY = 'netto_color_theme';
 const GOOGLE_CLIENT_ID =
-  (import.meta as any).env?.VITE_GOOGLE_CLIENT_ID || 'YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com';
+  ((import.meta as any).env?.VITE_GOOGLE_CLIENT_ID as string) ||
+  'YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com';
 
 type AppStep = 'LANDING' | 'AUTH' | 'DASHBOARD';
 type DashboardSubTab = 'OVERVIEW' | 'MANAGE';
@@ -52,6 +64,7 @@ export default function App() {
     setHasExistingVault,
     activeStorageKey,
     createVaultSlot,
+    deleteVaultSlot,
   } = useVaultManager(session);
 
   const [step, setStep] = useState<AppStep>('LANDING');
@@ -68,7 +81,12 @@ export default function App() {
 
   const [holdings, setHoldings] = useState<HoldingRow[]>([]);
   const [baseCurrency, setBaseCurrency] = useState<CurrencyCode>('SEK');
-  const [fxRates, setFxRates] = useState<Record<string, number>>({ SEK: 1, USD: 10.45, EUR: 11.35, INR: 0.125 });
+  const [fxRates, setFxRates] = useState<Record<string, number>>({
+    SEK: 1,
+    USD: 10.45,
+    EUR: 11.35,
+    INR: 0.125,
+  });
   const [statusMsg, setStatusMsg] = useState<string>('Vault Locked');
   const [googleToken, setGoogleToken] = useState<string | null>(null);
 
@@ -77,20 +95,18 @@ export default function App() {
     const savedTheme = localStorage.getItem(THEME_KEY) as 'dark' | 'light' | null;
     if (savedTheme) setTheme(savedTheme);
 
-    // Initial check
     supabase.auth.getSession().then(({ data, error }) => {
       if (error) console.error('[Netto Auth Error]:', error);
       if (data?.session) {
-        console.log('[Netto Auth] Active session found on init:', data.session.user.email);
         setSession(data.session);
         setStep('AUTH');
       }
       setLoadingSession(false);
     });
 
-    // Listen to all auth state transitions
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, currentSession) => {
-      console.log('[Netto Auth Event]:', event, currentSession?.user?.email);
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, currentSession) => {
       setSession(currentSession);
 
       if (currentSession) {
@@ -139,14 +155,24 @@ export default function App() {
     setHoldings(rows);
 
     const totalAssets = rows.reduce((sum, h) => {
-      const nativeVal = h.category === 'FIXED_DEPOSIT' ? h.principal : h.quantity * (h.market_price > 0 ? h.market_price : h.avg_price);
+      const nativeVal =
+        h.category === 'FIXED_DEPOSIT'
+          ? h.principal
+          : h.quantity * (h.market_price > 0 ? h.market_price : h.avg_price);
       return sum + (nativeVal * (fxRates[h.currency] || 1)) / (fxRates[baseCurrency] || 1);
     }, 0);
 
     const properties = getProperties(database);
-    const totalProps = properties.reduce((sum, p) => sum + (p.current_price * (fxRates[p.currency] || 1)) / (fxRates[baseCurrency] || 1), 0);
+    const totalProps = properties.reduce(
+      (sum, p) => sum + (p.current_price * (fxRates[p.currency] || 1)) / (fxRates[baseCurrency] || 1),
+      0
+    );
     const liabilities = getLiabilities(database);
-    const totalLiabs = liabilities.reduce((sum, l) => sum + (l.remaining_balance * (fxRates[l.currency] || 1)) / (fxRates[baseCurrency] || 1), 0);
+    const totalLiabs = liabilities.reduce(
+      (sum, l) =>
+        sum + (l.remaining_balance * (fxRates[l.currency] || 1)) / (fxRates[baseCurrency] || 1),
+      0
+    );
 
     recordSnapshot(database, totalAssets + totalProps, totalLiabs);
   };
@@ -184,7 +210,12 @@ export default function App() {
     client.requestAccessToken();
   };
 
-  const handleUnlockOrCreate = async (passInput: string, passConfirm: string, restoreBytes: Uint8Array | null, restoreName: string) => {
+  const handleUnlockOrCreate = async (
+    passInput: string,
+    passConfirm: string,
+    restoreBytes: Uint8Array | null,
+    _restoreName: string
+  ) => {
     if (!session) throw new Error('Sign in required.');
     if (passInput.length < 6) throw new Error('Passphrase must be at least 6 characters.');
 
@@ -251,6 +282,13 @@ export default function App() {
         createVaultSlot(name);
         handleSwitchVault(name);
       }}
+      onDeleteVaultSlot={(name) => {
+        deleteVaultSlot(name);
+        setDb(null);
+        setPassphrase('');
+        setHoldings([]);
+        setStep('AUTH');
+      }}
       onLogout={async () => {
         setDb(null);
         setPassphrase('');
@@ -260,7 +298,7 @@ export default function App() {
     />
   ) : null;
 
-  // STEP 1: Landing Page (Only if not logged in or user explicitly clicked back)
+  // STEP 1: Landing Page (When not logged in or explicitly clicked back)
   if (step === 'LANDING' && !session) {
     return (
       <LandingPage
@@ -276,12 +314,12 @@ export default function App() {
     );
   }
 
-  // STEP 2A: If user clicked Get Started but has no Supabase session yet
+  // STEP 2A: Authentication Gate (Google, GitHub, or Magic Link)
   if (!session) {
     return <AuthGateScreen isDark={isDark} onBackToLanding={() => setStep('LANDING')} />;
   }
 
-  // STEP 2B: Vault Password / Unlock / Create Screen
+  // STEP 2B: Local Vault Password / Unlock / Create Screen
   if (step === 'AUTH' || !db) {
     return (
       <div className="relative">
@@ -316,14 +354,21 @@ export default function App() {
   return (
     <div className={`min-h-screen ${isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
       {floatingBar}
-      <header className={`max-w-7xl mx-auto px-6 py-4 flex flex-wrap justify-between items-center gap-4 border-b ${isDark ? 'border-slate-800 bg-slate-900/80' : 'border-slate-200 bg-white shadow-sm'}`}>
+      <header
+        className={`max-w-7xl mx-auto px-6 py-4 flex flex-wrap justify-between items-center gap-4 border-b ${
+          isDark ? 'border-slate-800 bg-slate-900/80' : 'border-slate-200 bg-white shadow-sm'
+        }`}
+      >
         <div className="flex items-center gap-3">
           <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
             <ShieldCheck className="w-6 h-6" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 onClick={() => setStep('LANDING')} className="text-xl font-bold tracking-tight cursor-pointer hover:text-indigo-400 transition">
+              <h1
+                onClick={() => setStep('LANDING')}
+                className="text-xl font-bold tracking-tight cursor-pointer hover:text-indigo-400 transition"
+              >
                 netto
               </h1>
               <span className="text-[10px] bg-emerald-500/20 text-emerald-500 px-2 py-0.5 rounded-full font-medium">
@@ -337,13 +382,17 @@ export default function App() {
         <div className="flex gap-1 bg-slate-950/20 p-1 rounded-xl text-xs font-semibold">
           <button
             onClick={() => handleTabChange('OVERVIEW')}
-            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg transition ${subTab === 'OVERVIEW' ? 'bg-indigo-600 text-white shadow' : 'opacity-70 hover:opacity-100'}`}
+            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg transition ${
+              subTab === 'OVERVIEW' ? 'bg-indigo-600 text-white shadow' : 'opacity-70 hover:opacity-100'
+            }`}
           >
             <LayoutDashboard className="w-3.5 h-3.5" /> Overview
           </button>
           <button
             onClick={() => handleTabChange('MANAGE')}
-            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg transition ${subTab === 'MANAGE' ? 'bg-indigo-600 text-white shadow' : 'opacity-70 hover:opacity-100'}`}
+            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg transition ${
+              subTab === 'MANAGE' ? 'bg-indigo-600 text-white shadow' : 'opacity-70 hover:opacity-100'
+            }`}
           >
             <PlusCircle className="w-3.5 h-3.5" /> Manage Assets
           </button>
@@ -353,7 +402,9 @@ export default function App() {
           <button
             onClick={() => setIsMasked(!isMasked)}
             className={`p-2 rounded-lg border transition flex items-center gap-1.5 text-xs font-semibold ${
-              isMasked ? 'bg-amber-500/10 border-amber-500/30 text-amber-400' : 'bg-indigo-600 border-indigo-500 text-white'
+              isMasked
+                ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                : 'bg-indigo-600 border-indigo-500 text-white'
             }`}
           >
             {isMasked ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -362,10 +413,16 @@ export default function App() {
           <button onClick={toggleTheme} className="p-2 rounded-lg border">
             {isDark ? <Sun className="w-4 h-4 text-yellow-400" /> : <Moon className="w-4 h-4 text-slate-700" />}
           </button>
-          <button onClick={() => setShowSecurityModal(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border">
+          <button
+            onClick={() => setShowSecurityModal(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border"
+          >
             <Info className="w-3.5 h-3.5 text-indigo-400" /> Privacy
           </button>
-          <button onClick={() => setShowPassModal(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border">
+          <button
+            onClick={() => setShowPassModal(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border"
+          >
             <KeyRound className="w-3.5 h-3.5 text-indigo-400" /> Passphrase
           </button>
           <select
@@ -380,14 +437,22 @@ export default function App() {
           </select>
           <button
             onClick={async () => {
-              const symbols = holdings.filter((h) => h.category === 'EQUITY').map((h) => h.symbol);
+              const symbols = holdings
+                .filter((h) => h.category === 'EQUITY')
+                .map((h) => h.symbol);
               const vaultRes = db.exec("SELECT value FROM app_config WHERE key = 'vault_id'");
               const vaultId = (vaultRes[0]?.values[0]?.[0] as string) || 'anon';
               setStatusMsg('Fetching anonymous quotes via Cloudflare Edge...');
               try {
-                const res = await fetch(`/api/quotes?symbols=${encodeURIComponent(symbols.join(','))}`, {
-                  headers: { 'X-Vault-Id': vaultId, 'X-Base-Currency': baseCurrency },
-                });
+                const res = await fetch(
+                  `/api/quotes?symbols=${encodeURIComponent(symbols.join(','))}`,
+                  {
+                    headers: {
+                      'X-Vault-Id': vaultId,
+                      'X-Base-Currency': baseCurrency,
+                    },
+                  }
+                );
                 if (!res.ok) throw new Error();
                 const data = await res.json();
                 if (data.fxRates) setFxRates(data.fxRates);
@@ -395,10 +460,10 @@ export default function App() {
                   db.run('BEGIN TRANSACTION');
                   for (const [sym, price] of Object.entries(data.quotes)) {
                     if (Number(price) > 0) {
-                      db.run('UPDATE holdings SET market_price = ?, updated_at = CURRENT_TIMESTAMP WHERE symbol = ?', [
-                        Number(price),
-                        sym,
-                      ]);
+                      db.run(
+                        'UPDATE holdings SET market_price = ?, updated_at = CURRENT_TIMESTAMP WHERE symbol = ?',
+                        [Number(price), sym]
+                      );
                     }
                   }
                   db.run('COMMIT');
@@ -416,7 +481,9 @@ export default function App() {
           <button
             onClick={() =>
               withGoogleAuth(async (token) => {
-                setStatusMsg(`Encrypting & uploading [netto_vault_${activeVaultName}.sqlite.enc]...`);
+                setStatusMsg(
+                  `Encrypting & uploading [netto_vault_${activeVaultName}.sqlite.enc]...`
+                );
                 const enc = await encryptSqliteBytes(db.export(), passphrase);
                 setStatusMsg(await syncToGoogleDrive(token, enc, activeVaultName));
               })
@@ -449,7 +516,9 @@ export default function App() {
             onCsvImport={(file, broker) =>
               importBrokerCsv(file, broker, db, async (summary) => {
                 await persistEncryptedVault(db);
-                setStatusMsg(`Imported ${summary.newTransactionsAdded} txns • ${summary.holdingsUpdated} holdings`);
+                setStatusMsg(
+                  `Imported ${summary.newTransactionsAdded} txns • ${summary.holdingsUpdated} holdings`
+                );
                 setCsvSummary(summary);
               })
             }
@@ -464,18 +533,49 @@ export default function App() {
                 `INSERT INTO holdings (broker, category, symbol, name, currency, principal, interest_rate, compounding_freq, start_date, maturity_date)
                  VALUES (?, 'FIXED_DEPOSIT', ?, ?, ?, ?, ?, ?, ?, ?)
                  ON CONFLICT(broker, symbol) DO UPDATE SET principal = excluded.principal`,
-                [fd.broker, fd.symbol, fd.name, fd.currency, fd.principal, fd.interest_rate, fd.compounding_freq, fd.start_date, fd.maturity_date]
+                [
+                  fd.broker,
+                  fd.symbol,
+                  fd.name,
+                  fd.currency,
+                  fd.principal,
+                  fd.interest_rate,
+                  fd.compounding_freq,
+                  fd.start_date,
+                  fd.maturity_date,
+                ]
               );
               await persistEncryptedVault(db);
               setStatusMsg(`Saved FD: ${fd.name}`);
             }}
             onAddProperty={async (p) => {
-              db.run(`INSERT INTO properties (name, property_type, currency, buy_price, buy_month, buy_year, current_price) VALUES (?, ?, ?, ?, ?, ?, ?)`, [p.name, p.property_type, p.currency, p.buy_price, p.buy_month, p.buy_year, p.current_price]);
+              db.run(
+                `INSERT INTO properties (name, property_type, currency, buy_price, buy_month, buy_year, current_price) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                [
+                  p.name,
+                  p.property_type,
+                  p.currency,
+                  p.buy_price,
+                  p.buy_month,
+                  p.buy_year,
+                  p.current_price,
+                ]
+              );
               await persistEncryptedVault(db);
               setStatusMsg(`Saved Property: ${p.name}`);
             }}
             onAddLiability={async (l) => {
-              db.run(`INSERT INTO liabilities (name, liability_type, currency, total_loan, remaining_balance, interest_rate) VALUES (?, ?, ?, ?, ?, ?)`, [l.name, l.liability_type, l.currency, l.total_loan, l.remaining_balance, l.interest_rate]);
+              db.run(
+                `INSERT INTO liabilities (name, liability_type, currency, total_loan, remaining_balance, interest_rate) VALUES (?, ?, ?, ?, ?, ?)`,
+                [
+                  l.name,
+                  l.liability_type,
+                  l.currency,
+                  l.total_loan,
+                  l.remaining_balance,
+                  l.interest_rate,
+                ]
+              );
               await persistEncryptedVault(db);
               setStatusMsg(`Saved Liability: ${l.name}`);
             }}
@@ -498,7 +598,9 @@ export default function App() {
         )}
       </main>
 
-      {showSecurityModal && <PrivacyArchitectureModal onClose={() => setShowSecurityModal(false)} />}
+      {showSecurityModal && (
+        <PrivacyArchitectureModal onClose={() => setShowSecurityModal(false)} />
+      )}
       {showPassModal && (
         <ChangePassphraseModal
           onClose={() => setShowPassModal(false)}
