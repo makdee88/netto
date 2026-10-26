@@ -221,7 +221,7 @@ export default function App() {
     refreshHoldings(database);
   };
 
-  // Google Drive token resolution: Supabase provider_token -> sessionStorage -> Google Identity Services fallback
+// Google Drive token resolution: Supabase provider_token -> sessionStorage -> Google Identity Services fallback
   const withGoogleAuth = async (action: (token: string) => Promise<void>) => {
     const token =
       googleToken ||
@@ -249,7 +249,7 @@ export default function App() {
       const client = window.google.accounts.oauth2.initTokenClient({
         client_id: GOOGLE_CLIENT_ID,
         scope: 'https://www.googleapis.com/auth/drive.appdata',
-        callback: async (res) => {
+        callback: async (res: any) => {
           if (res.error) {
             console.error('Google token error:', res);
             alert(`Google Drive permission error: ${res.error_description || res.error}`);
