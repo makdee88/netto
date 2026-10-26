@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import type { Database } from 'sql.js';
-import { Session, AuthChangeEvent } from '@supabase/supabase-js';
+import { Session } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 import { initDatabase, recordSnapshot, getProperties, getLiabilities, clearBrokerData } from './db/database';
 import { encryptSqliteBytes, decryptSqliteBytes, uint8ToBase64, base64ToUint8 } from './crypto/vaultCrypto';
@@ -41,7 +41,7 @@ type DashboardSubTab = 'OVERVIEW' | 'MANAGE';
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
-  const [loadingSession, setLoadingSession] = useState(true);
+  const [loadingSession, setLoadingSession] = useState<boolean>(true);
 
   const {
     vaultList,
@@ -54,60 +54,52 @@ export default function App() {
     createVaultSlot,
   } = useVaultManager(session);
 
-  const [step, setStep] = useState<AppStep>(() => (sessionStorage.getItem('netto_active_step') as AppStep) || 'LANDING');
-  const [subTab, setSubTab] = useState<DashboardSubTab>(() => (sessionStorage.getItem('netto_sub_tab') as DashboardSubTab) || 'OVERVIEW');
+  const [step, setStep] = useState<AppStep>('LANDING');
+  const [subTab, setSubTab] = useState<DashboardSubTab>('OVERVIEW');
   const [authMode, setAuthMode] = useState<AuthMode>('CREATE_OR_UNLOCK');
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
-  const [isMasked, setIsMasked] = useState(true);
+  const [isMasked, setIsMasked] = useState<boolean>(true);
 
   const [db, setDb] = useState<Database | null>(null);
-  const [passphrase, setPassphrase] = useState('');
-  const [showSecurityModal, setShowSecurityModal] = useState(false);
-  const [showPassModal, setShowPassModal] = useState(false);
+  const [passphrase, setPassphrase] = useState<string>('');
+  const [showSecurityModal, setShowSecurityModal] = useState<boolean>(false);
+  const [showPassModal, setShowPassModal] = useState<boolean>(false);
   const [csvSummary, setCsvSummary] = useState<CsvImportResult | null>(null);
 
   const [holdings, setHoldings] = useState<HoldingRow[]>([]);
   const [baseCurrency, setBaseCurrency] = useState<CurrencyCode>('SEK');
   const [fxRates, setFxRates] = useState<Record<string, number>>({ SEK: 1, USD: 10.45, EUR: 11.35, INR: 0.125 });
-  const [statusMsg, setStatusMsg] = useState('Vault Locked');
+  const [statusMsg, setStatusMsg] = useState<string>('Vault Locked');
   const [googleToken, setGoogleToken] = useState<string | null>(null);
 
+  // 1. Theme and Supabase Auth Subscription
   useEffect(() => {
     const savedTheme = localStorage.getItem(THEME_KEY) as 'dark' | 'light' | null;
     if (savedTheme) setTheme(savedTheme);
 
-    const isOAuthRedirect =
-      window.location.hash.includes('access_token') ||
-      window.location.hash.includes('type=recovery') ||
-      window.location.search.includes('code=');
-
-    supabase.auth.getSession().then(({ data: { session: currentSession } }) => {
-      if (currentSession) {
-        setSession(currentSession);
-        if (isOAuthRedirect) {
-          window.history.replaceState({}, document.title, window.location.pathname);
-          handleStepChange('AUTH');
-        }
+    // Initial check
+    supabase.auth.getSession().then(({ data, error }) => {
+      if (error) console.error('[Netto Auth Error]:', error);
+      if (data?.session) {
+        console.log('[Netto Auth] Active session found on init:', data.session.user.email);
+        setSession(data.session);
+        setStep('AUTH');
       }
       setLoadingSession(false);
     });
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((event: AuthChangeEvent, currentSession: Session | null) => {
+    // Listen to all auth state transitions
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, currentSession) => {
+      console.log('[Netto Auth Event]:', event, currentSession?.user?.email);
       setSession(currentSession);
 
-      if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && currentSession) {
+      if (currentSession) {
         setStep('AUTH');
-        sessionStorage.setItem('netto_active_step', 'AUTH');
-      }
-
-      if (event === 'SIGNED_OUT' || !currentSession) {
+      } else {
         setDb(null);
         setPassphrase('');
         setHoldings([]);
         setStep('LANDING');
-        sessionStorage.setItem('netto_active_step', 'LANDING');
       }
     });
 
@@ -116,12 +108,10 @@ export default function App() {
 
   const handleStepChange = (newStep: AppStep) => {
     setStep(newStep);
-    sessionStorage.setItem('netto_active_step', newStep);
   };
 
   const handleTabChange = (tab: DashboardSubTab) => {
     setSubTab(tab);
-    sessionStorage.setItem('netto_sub_tab', tab);
   };
 
   const toggleTheme = () => {
@@ -138,7 +128,7 @@ export default function App() {
     setActiveVaultName(newVaultName);
     sessionStorage.setItem('netto_active_vault_name', newVaultName);
     setAuthMode('CREATE_OR_UNLOCK');
-    handleStepChange('AUTH');
+    setStep('AUTH');
   };
 
   const refreshHoldings = (database: Database) => {
@@ -207,7 +197,7 @@ export default function App() {
       await persistEncryptedVault(database, passInput);
       setHasExistingVault(true);
       setStatusMsg(`Restored [${activeVaultName}]`);
-      handleStepChange('DASHBOARD');
+      setStep('DASHBOARD');
       return;
     }
 
@@ -219,7 +209,7 @@ export default function App() {
       setDb(database);
       refreshHoldings(database);
       setStatusMsg(`Vault [${activeVaultName}] Unlocked`);
-      handleStepChange('DASHBOARD');
+      setStep('DASHBOARD');
     } else {
       if (passInput !== passConfirm) throw new Error('Passphrases do not match.');
       const database = await initDatabase();
@@ -228,7 +218,7 @@ export default function App() {
       await persistEncryptedVault(database, passInput);
       setHasExistingVault(true);
       setStatusMsg(`New Vault [${activeVaultName}] Created!`);
-      handleStepChange('DASHBOARD');
+      setStep('DASHBOARD');
     }
   };
 
@@ -246,9 +236,9 @@ export default function App() {
   const userFullName =
     session?.user?.user_metadata?.full_name ||
     session?.user?.user_metadata?.name ||
-    session?.user?.user_metadata?.user_name ||
     (userEmail ? userEmail.split('@')[0] : '');
 
+  // Floating Bar: Rendered whenever a session exists
   const floatingBar = session ? (
     <FloatingVaultBar
       email={userEmail}
@@ -265,39 +255,36 @@ export default function App() {
         setDb(null);
         setPassphrase('');
         await supabase.auth.signOut();
-        handleStepChange('LANDING');
+        setStep('LANDING');
       }}
     />
   ) : null;
 
-  if (step === 'LANDING') {
+  // STEP 1: Landing Page (Only if not logged in or user explicitly clicked back)
+  if (step === 'LANDING' && !session) {
     return (
-      <>
-        {floatingBar}
-        <LandingPage
-          hasExistingVault={hasExistingVault}
-          theme={theme}
-          onToggleTheme={toggleTheme}
-          onLaunchCreateOrUnlock={() => {
-            setAuthMode('CREATE_OR_UNLOCK');
-            handleStepChange('AUTH');
-          }}
-          onLaunchRestore={() => {
-            setAuthMode('RESTORE_RETURNING');
-            handleStepChange('AUTH');
-          }}
-        />
-      </>
+      <LandingPage
+        hasExistingVault={hasExistingVault}
+        theme={theme}
+        onToggleTheme={toggleTheme}
+        onLaunchCreateOrUnlock={() => setStep('AUTH')}
+        onLaunchRestore={() => {
+          setAuthMode('RESTORE_RETURNING');
+          setStep('AUTH');
+        }}
+      />
     );
   }
 
+  // STEP 2A: If user clicked Get Started but has no Supabase session yet
   if (!session) {
-    return <AuthGateScreen isDark={isDark} onBackToLanding={() => handleStepChange('LANDING')} />;
+    return <AuthGateScreen isDark={isDark} onBackToLanding={() => setStep('LANDING')} />;
   }
 
+  // STEP 2B: Vault Password / Unlock / Create Screen
   if (step === 'AUTH' || !db) {
     return (
-      <>
+      <div className="relative">
         {floatingBar}
         <VaultAuthScreen
           authMode={authMode}
@@ -305,7 +292,7 @@ export default function App() {
           hasExistingVault={hasExistingVault}
           userEmail={userEmail}
           activeVaultName={activeVaultName}
-          onBackToLanding={() => handleStepChange('LANDING')}
+          onBackToLanding={() => setStep('LANDING')}
           onUnlockOrCreate={handleUnlockOrCreate}
           onFetchGoogleDriveVault={(onLoaded: (bytes: Uint8Array) => void) =>
             withGoogleAuth(async (token) => {
@@ -317,14 +304,15 @@ export default function App() {
             if (confirm(`Clear cached vault [${activeVaultName}]?`)) {
               localStorage.removeItem(activeStorageKey);
               setHasExistingVault(false);
-              handleStepChange('LANDING');
+              setStep('AUTH');
             }
           }}
         />
-      </>
+      </div>
     );
   }
 
+  // STEP 3: Dashboard Screen
   return (
     <div className={`min-h-screen ${isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
       {floatingBar}
@@ -335,7 +323,7 @@ export default function App() {
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 onClick={() => handleStepChange('LANDING')} className="text-xl font-bold tracking-tight cursor-pointer hover:text-indigo-400 transition">
+              <h1 onClick={() => setStep('LANDING')} className="text-xl font-bold tracking-tight cursor-pointer hover:text-indigo-400 transition">
                 netto
               </h1>
               <span className="text-[10px] bg-emerald-500/20 text-emerald-500 px-2 py-0.5 rounded-full font-medium">
