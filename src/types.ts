@@ -109,6 +109,7 @@ export interface SnapshotRow {
 
 export interface CsvImportResult {
   broker: string;
+  importType: 'TRADEBOOK' | 'HOLDINGS_SNAPSHOT';
   newTransactionsAdded: number;
   holdingsUpdated: number;
   duplicatesSkipped?: number;
