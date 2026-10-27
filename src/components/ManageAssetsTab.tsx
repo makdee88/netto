@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import type { Database } from 'sql.js';
 import { HoldingRow, CurrencyCode, BrokerType } from '../types';
 import {
@@ -19,7 +19,7 @@ interface ManageAssetsTabProps {
   holdings: HoldingRow[];
   theme: 'dark' | 'light';
   onBackToOverview: () => void;
-  onCsvImport: (file: File, broker: string) => void;
+  onCsvImport: (file: File, broker: string) => Promise<any> | void;
   onClearBroker: (broker: string) => void;
   onAddFD: (fd: {
     broker: string;
@@ -84,8 +84,10 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
 
   const [selectedBroker, setSelectedBroker] = useState<BrokerType>('Avanza');
   const [activeFormTab, setActiveFormTab] = useState<'EQUITY' | 'FD' | 'PROPERTY' | 'LIABILITY'>('EQUITY');
+  const [isUploading, setIsUploading] = useState<boolean>(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Fixed Deposit Form (compounding_freq as number: 1=Annual, 2=Semi-Annual, 4=Quarterly, 12=Monthly)
+  // Fixed Deposit Form
   const [fdForm, setFdForm] = useState({
     name: '',
     broker: 'Bank',
@@ -136,7 +138,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
           onClick={onBackToOverview}
           className="flex items-center gap-1.5 text-xs font-semibold opacity-70 hover:opacity-100 transition"
         >
-          <ArrowLeft className="w-4 h-4"/> Back to Overview
+          <ArrowLeft className="w-4 h-4" /> Back to Overview
         </button>
         <div className="flex items-center gap-1 bg-slate-950/20 p-1 rounded-xl text-xs font-semibold">
           <button
@@ -184,7 +186,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 pb-6 border-b border-dashed border-slate-800/40">
             <div>
               <div className="flex items-center gap-2">
-                <FileSpreadsheet className="w-5 h-5 text-indigo-400"/>
+                <FileSpreadsheet className="w-5 h-5 text-indigo-400" />
                 <h3 className="text-base font-bold">Broker Ledger Import</h3>
               </div>
               <p className={`text-xs mt-1 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
@@ -207,35 +209,39 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                 ))}
               </select>
 
-              <label
-                htmlFor="broker-file-upload"
-                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs cursor-pointer shadow-md transition"
-              >
-                <Upload className="w-4 h-4"/>
-                <span>Upload File</span>
-              </label>
-              <input
-                    type="file"
-                    accept=".csv, .xlsx, .xls, text/csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    onChange={async (e) => {
-                      const file = e.target.files?.[0];
-                      if (file) {
-                        console.log('File selected:', file.name, file.size, file.type);
-                        try {
-                          await onCsvImport(file, selectedBroker);
-                          console.log('Import completed successfully');
-                        } catch (err: any) {
-                          console.error('Import error caught:', err);
-                          alert(`Import failed: ${err?.message || err}`);
-                        } finally {
-                          e.target.value = ''; // Reset input
-                        }
-                      }
-                    }}
-                    className="hidden"
-                    id="broker-file-input"
-                  />
               <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isUploading}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs cursor-pointer shadow-md transition disabled:opacity-50"
+              >
+                <Upload className="w-4 h-4" />
+                <span>{isUploading ? 'Parsing File...' : 'Upload File'}</span>
+              </button>
+
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".csv, .xlsx, .xls, text/csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    try {
+                      setIsUploading(true);
+                      await onCsvImport(file, selectedBroker);
+                    } catch (err: any) {
+                      alert(`Import failed: ${err?.message || err}`);
+                    } finally {
+                      setIsUploading(false);
+                      e.target.value = '';
+                    }
+                  }
+                }}
+                className="hidden"
+              />
+
+              <button
+                type="button"
                 onClick={() => {
                   if (confirm(`Wipe all imported transactions and holdings for ${selectedBroker}?`)) {
                     onClearBroker(selectedBroker);
@@ -244,12 +250,11 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                 className="p-2 border border-rose-500/30 text-rose-400 hover:bg-rose-500/10 rounded-xl text-xs font-semibold transition"
                 title={`Clear ${selectedBroker} Ledger`}
               >
-                <Trash2 className="w-4 h-4"/>
+                <Trash2 className="w-4 h-4" />
               </button>
             </div>
           </div>
 
-          {/* Step-by-Step Broker Export Guide */}
           <BrokerGuide broker={selectedBroker} isDark={isDark} />
 
           <div className="overflow-x-auto">
@@ -287,7 +292,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                         className="text-rose-400 hover:text-rose-300 p-1 rounded-lg hover:bg-rose-500/10 transition"
                         title="Delete Asset"
                       >
-                        <Trash2 className="w-3.5 h-3.5"/>
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </td>
                   </tr>
@@ -314,7 +319,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
             }`}
           >
             <div className="flex items-center gap-2 mb-4">
-              <Landmark className="w-4 h-4 text-emerald-400"/>
+              <Landmark className="w-4 h-4 text-emerald-400" />
               <h3 className="text-sm font-bold">New Fixed Deposit</h3>
             </div>
             <form
@@ -434,7 +439,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                 type="submit"
                 className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold transition flex items-center justify-center gap-1.5 shadow"
               >
-                <Plus className="w-3.5 h-3.5"/> Save Deposit
+                <Plus className="w-3.5 h-3.5" /> Save Deposit
               </button>
             </form>
           </div>
@@ -474,7 +479,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                           onClick={() => onDeleteHolding(fd.id)}
                           className="text-rose-400 hover:text-rose-300 p-1"
                         >
-                          <Trash2 className="w-3.5 h-3.5"/>
+                          <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </td>
                     </tr>
@@ -502,7 +507,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
             }`}
           >
             <div className="flex items-center gap-2 mb-4">
-              <Building className="w-4 h-4 text-sky-400"/>
+              <Building className="w-4 h-4 text-sky-400" />
               <h3 className="text-sm font-bold">Add Property / Estate</h3>
             </div>
             <form
@@ -616,7 +621,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                 type="submit"
                 className="w-full py-2.5 bg-sky-600 hover:bg-sky-500 text-white rounded-xl font-bold transition flex items-center justify-center gap-1.5 shadow"
               >
-                <Plus className="w-3.5 h-3.5"/> Save Property
+                <Plus className="w-3.5 h-3.5" /> Save Property
               </button>
             </form>
           </div>
@@ -658,7 +663,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                           onClick={() => onDeleteProperty(p.id)}
                           className="text-rose-400 hover:text-rose-300 p-1"
                         >
-                          <Trash2 className="w-3.5 h-3.5"/>
+                          <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </td>
                     </tr>
@@ -686,7 +691,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
             }`}
           >
             <div className="flex items-center gap-2 mb-4">
-              <CreditCard className="w-4 h-4 text-rose-400"/>
+              <CreditCard className="w-4 h-4 text-rose-400" />
               <h3 className="text-sm font-bold">Add Loan / Liability</h3>
             </div>
             <form
@@ -786,7 +791,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                 type="submit"
                 className="w-full py-2.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl font-bold transition flex items-center justify-center gap-1.5 shadow"
               >
-                <Plus className="w-3.5 h-3.5"/> Save Liability
+                <Plus className="w-3.5 h-3.5" /> Save Liability
               </button>
             </form>
           </div>
@@ -824,7 +829,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                           onClick={() => onDeleteLiability(l.id)}
                           className="text-rose-400 hover:text-rose-300 p-1"
                         >
-                          <Trash2 className="w-3.5 h-3.5"/>
+                          <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </td>
                     </tr>
