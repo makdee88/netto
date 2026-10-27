@@ -18,7 +18,9 @@ import {
   KeyRound,
   EyeOff,
   X,
+  BookOpen,
 } from 'lucide-react';
+import { HowToUseModal } from './HowToUseModal';
 
 interface LandingPageProps {
   hasExistingVault: boolean;
@@ -37,6 +39,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 }) => {
   const isDark = theme === 'dark';
   const [activeLegalModal, setActiveLegalModal] = useState<'privacy' | 'terms' | null>(null);
+  const [showHowToUse, setShowHowToUse] = useState<boolean>(false);
 
   // Direct hash routing for Google Cloud Console verification (/#privacy, /#terms)
   useEffect(() => {
@@ -80,7 +83,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       icon: <FileSpreadsheet className="w-5 h-5 text-teal-400" />,
       title: 'Automated CSV Parsers',
       description:
-        'Import portfolios directly from broker CSV exports (Avanza, Zerodha, and more) with auto-deduplication and FX conversion.',
+        'Import portfolios directly from broker CSV exports (Avanza, Zerodha, IBKR, Kuvera) with auto-deduplication and FX conversion.',
     },
     {
       icon: <EyeOff className="w-5 h-5 text-amber-400" />,
@@ -123,6 +126,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
           <div className="flex items-center gap-3">
             <nav className="hidden md:flex items-center gap-5 text-xs font-semibold opacity-80">
+              <button
+                onClick={() => setShowHowToUse(true)}
+                className="hover:opacity-100 transition flex items-center gap-1.5 text-indigo-400 font-bold cursor-pointer"
+              >
+                <BookOpen className="w-3.5 h-3.5" /> How to Use
+              </button>
               <a href="#features" className="hover:opacity-100 transition">
                 Features
               </a>
@@ -131,7 +140,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               </a>
               <button
                 onClick={() => setActiveLegalModal('privacy')}
-                className="hover:opacity-100 transition"
+                className="hover:opacity-100 transition cursor-pointer"
               >
                 Privacy Policy
               </button>
@@ -141,8 +150,20 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             </nav>
 
             <button
+              onClick={() => setShowHowToUse(true)}
+              className={`md:hidden flex items-center gap-1 p-2 rounded-xl border transition cursor-pointer ${
+                isDark
+                  ? 'border-slate-800 hover:bg-slate-900 text-indigo-400'
+                  : 'border-slate-300 hover:bg-slate-100 text-indigo-600'
+              }`}
+              title="How to Use"
+            >
+              <BookOpen className="w-4 h-4" />
+            </button>
+
+            <button
               onClick={onToggleTheme}
-              className={`p-2 rounded-xl border transition ${
+              className={`p-2 rounded-xl border transition cursor-pointer ${
                 isDark
                   ? 'border-slate-800 hover:bg-slate-900 text-yellow-400'
                   : 'border-slate-300 hover:bg-slate-100 text-slate-700'
@@ -154,7 +175,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
             <button
               onClick={onLaunchCreateOrUnlock}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs shadow-md shadow-indigo-600/20 transition"
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs shadow-md shadow-indigo-600/20 transition cursor-pointer"
             >
               <span>{hasExistingVault ? 'Unlock Vault' : 'Open Vault'}</span>
               <ArrowRight className="w-3.5 h-3.5" />
@@ -190,18 +211,30 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         <div className="flex flex-wrap items-center justify-center gap-4">
           <button
             onClick={onLaunchCreateOrUnlock}
-            className="flex items-center gap-2.5 px-6 py-3.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm shadow-xl shadow-indigo-600/30 hover:scale-[1.02] active:scale-[0.98] transition"
+            className="flex items-center gap-2.5 px-6 py-3.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm shadow-xl shadow-indigo-600/30 hover:scale-[1.02] active:scale-[0.98] transition cursor-pointer"
           >
             <span>{hasExistingVault ? 'Unlock Existing Vault' : 'Create Free Vault'}</span>
             <ArrowRight className="w-4 h-4" />
           </button>
 
           <button
-            onClick={onLaunchRestore}
-            className={`flex items-center gap-2 px-6 py-3.5 rounded-2xl border font-bold text-sm transition hover:scale-[1.02] active:scale-[0.98] ${
+            onClick={() => setShowHowToUse(true)}
+            className={`flex items-center gap-2 px-6 py-3.5 rounded-2xl border font-bold text-sm transition hover:scale-[1.02] active:scale-[0.98] cursor-pointer ${
               isDark
                 ? 'border-slate-800 bg-slate-900/80 hover:bg-slate-800 text-slate-200'
                 : 'border-slate-300 bg-white hover:bg-slate-50 text-slate-800 shadow-sm'
+            }`}
+          >
+            <BookOpen className="w-4 h-4 text-indigo-400" />
+            <span>Read Guide &amp; Features</span>
+          </button>
+
+          <button
+            onClick={onLaunchRestore}
+            className={`flex items-center gap-2 px-6 py-3.5 rounded-2xl border font-bold text-sm transition hover:scale-[1.02] active:scale-[0.98] cursor-pointer ${
+              isDark
+                ? 'border-slate-800 bg-slate-900/40 hover:bg-slate-800 text-slate-400 hover:text-slate-200'
+                : 'border-slate-200 bg-slate-100 hover:bg-slate-200 text-slate-600 shadow-sm'
             }`}
           >
             <span>Restore Backup</span>
@@ -345,7 +378,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               href="https://github.com/makdee88/netto"
               target="_blank"
               rel="noreferrer"
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs shadow-md shadow-indigo-600/20 transition"
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs shadow-md shadow-indigo-600/20 transition cursor-pointer"
             >
               <Github className="w-4 h-4 fill-current" />
               <span>View Source on GitHub</span>
@@ -354,7 +387,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               href="https://makdee.713130.xyz/wordpress/"
               target="_blank"
               rel="noreferrer"
-              className={`flex items-center gap-2 px-5 py-2.5 rounded-xl border font-semibold text-xs transition ${
+              className={`flex items-center gap-2 px-5 py-2.5 rounded-xl border font-semibold text-xs transition cursor-pointer ${
                 isDark
                   ? 'border-slate-800 bg-slate-900 hover:bg-slate-800 text-slate-200'
                   : 'border-slate-300 bg-white hover:bg-slate-50 text-slate-800'
@@ -396,15 +429,21 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           {/* Verification & Legal Direct Links */}
           <div className="flex flex-wrap items-center justify-center gap-5 text-xs font-medium">
             <button
+              onClick={() => setShowHowToUse(true)}
+              className="hover:text-indigo-400 transition text-indigo-400 font-semibold cursor-pointer"
+            >
+              How to Use Guide
+            </button>
+            <button
               onClick={() => setActiveLegalModal('privacy')}
-              className="hover:text-indigo-400 transition underline underline-offset-4"
+              className="hover:text-indigo-400 transition underline underline-offset-4 cursor-pointer"
               id="privacy"
             >
               Privacy Policy
             </button>
             <button
               onClick={() => setActiveLegalModal('terms')}
-              className="hover:text-indigo-400 transition underline underline-offset-4"
+              className="hover:text-indigo-400 transition underline underline-offset-4 cursor-pointer"
               id="terms"
             >
               Terms of Service
@@ -429,6 +468,14 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         </div>
       </footer>
 
+      {/* How To Use User Guide Modal */}
+      <HowToUseModal
+        isOpen={showHowToUse}
+        onClose={() => setShowHowToUse(false)}
+        theme={theme}
+        onGetStarted={onLaunchCreateOrUnlock}
+      />
+
       {/* Legal & Privacy Policy Modal for Google Verification */}
       {activeLegalModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in">
@@ -446,7 +493,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               </div>
               <button
                 onClick={closeLegalModal}
-                className="p-1.5 rounded-xl border border-transparent hover:border-slate-700 opacity-70 hover:opacity-100 transition"
+                className="p-1.5 rounded-xl border border-transparent hover:border-slate-700 opacity-70 hover:opacity-100 transition cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -479,13 +526,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     transaction histories, account balances, or net worth values.
                   </p>
 
-                  <h4 className="font-bold text-slate-200 text-sm pt-2">2. Google User Data Policy & Scopes</h4>
+                  <h4 className="font-bold text-slate-200 text-sm pt-2">2. Google User Data Policy &amp; Scopes</h4>
                   <p>
                     When authenticating via Google or backing up to Google Drive, Netto requests access to:
                   </p>
                   <ul className="list-disc pl-5 space-y-1">
                     <li>
-                      <strong className="text-slate-300">userinfo.email & userinfo.profile:</strong> Used solely to establish your local session identifier and distinguish vault directories.
+                      <strong className="text-slate-300">userinfo.email &amp; userinfo.profile:</strong> Used solely to establish your local session identifier and distinguish vault directories.
                     </li>
                     <li>
                       <strong className="text-slate-300">https://www.googleapis.com/auth/drive.appdata:</strong> Used solely to upload and download your own encrypted database snapshots (<code>netto_vault_*.sqlite.enc</code>) to your private Google Drive application folder.
@@ -500,7 +547,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     All database records are processed in memory using SQLite (via WebAssembly) and encrypted using AES-256-GCM prior to being saved in browser <code>localStorage</code> or synchronized with Google Drive. Your passphrase is never sent over any network.
                   </p>
 
-                  <h4 className="font-bold text-slate-200 text-sm pt-2">4. Data Deletion & Revocation</h4>
+                  <h4 className="font-bold text-slate-200 text-sm pt-2">4. Data Deletion &amp; Revocation</h4>
                   <p>
                     You retain complete control of your data. You can delete your local encrypted cache at any time via the session switcher, and you can revoke Google OAuth permissions at any time via{' '}
                     <a
@@ -566,7 +613,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <div className="pt-4 border-t border-slate-800/40 flex justify-end">
               <button
                 onClick={closeLegalModal}
-                className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold text-xs shadow-md transition"
+                className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold text-xs shadow-md transition cursor-pointer"
               >
                 Close
               </button>

@@ -314,6 +314,17 @@ export const VaultAuthScreen: React.FC<VaultAuthScreenProps> = ({
               : 'Unlock Vault'}
           </button>
         </form>
+        {/* Inside VaultAuthScreen.tsx below the submit buttons */}
+        <div className="pt-2 text-center">
+          <button
+            type="button"
+            onClick={() => setShowHowToUse(true)}
+            className="inline-flex items-center gap-1.5 text-xs text-indigo-400 hover:text-indigo-300 opacity-80 hover:opacity-100 transition cursor-pointer"
+          >
+            <BookOpen className="w-3.5 h-3.5" />
+            <span>How does vault encryption &amp; restore work?</span>
+          </button>
+        </div>
 
         {hasExistingVault && (
           <div className={`pt-2 border-t flex justify-between items-center text-[11px] ${
