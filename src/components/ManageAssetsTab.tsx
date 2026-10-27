@@ -295,36 +295,45 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/20">
-                {equityHoldings.map((h) => (
-                  <tr key={h.id} className="hover:bg-slate-800/10 transition">
-                    <td className="py-3 font-bold">{h.broker}</td>
-                    <td className="py-3">
-                      <div className="font-semibold">{h.name}</div>
-                      <div className="text-[10px] opacity-60 font-mono">{h.symbol}</div>
-                    </td>
-                    <td className="py-3">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                        Holdings Snapshot
-                      </span>
-                    </td>
-                    <td className="py-3 text-right font-medium">{h.quantity}</td>
-                    <td className="py-3 text-right font-mono">
-                      {h.avg_price.toFixed(2)} {h.currency}
-                    </td>
-                    <td className="py-3 text-right font-mono">
-                      {h.market_price > 0 ? `${h.market_price.toFixed(2)} {h.currency}` : '-'}
-                    </td>
-                    <td className="py-3 text-right">
-                      <button
-                        onClick={() => onDeleteHolding(h.id)}
-                        className="text-rose-400 hover:text-rose-300 p-1 rounded-lg hover:bg-rose-500/10 transition"
-                        title="Delete Asset"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {equityHoldings.map((h) => {
+                  const isSnapshot = h.broker === 'Zerodha' || String(h.symbol).includes('HOLDINGS');
+                  return (
+                    <tr key={h.id} className="hover:bg-slate-800/10 transition">
+                      <td className="py-3 font-bold">{h.broker}</td>
+                      <td className="py-3">
+                        <div className="font-semibold">{h.name || h.symbol}</div>
+                        <div className="text-[10px] opacity-60 font-mono">{h.symbol}</div>
+                      </td>
+                      <td className="py-3">
+                        {isSnapshot ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                            Holdings Snapshot
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                            Tradebook (History)
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-3 text-right font-medium">{h.quantity}</td>
+                      <td className="py-3 text-right font-mono">
+                        {(h.avg_price || 0).toFixed(2)} {h.currency || 'SEK'}
+                      </td>
+                      <td className="py-3 text-right font-mono">
+                        {h.market_price && h.market_price > 0 ? `${h.market_price.toFixed(2)} ${h.currency || 'SEK'}` : '-'}
+                      </td>
+                      <td className="py-3 text-right">
+                        <button
+                          onClick={() => onDeleteHolding(h.id)}
+                          className="text-rose-400 hover:text-rose-300 p-1 rounded-lg hover:bg-rose-500/10 transition"
+                          title="Delete Asset"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
                 {equityHoldings.length === 0 && (
                   <tr>
                     <td colSpan={7} className="text-center py-8 opacity-60 text-xs">
