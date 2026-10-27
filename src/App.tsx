@@ -21,6 +21,7 @@ import {
   downloadEncryptedBlob,
 } from './crypto/vaultCrypto';
 import { importBrokerCsv } from './parsers/csvImporter';
+import { saveBulkFdsToDb } from './parsers/fdImporter';
 import { syncToGoogleDrive, loadFromGoogleDrive } from './sync/googleDrive';
 import { CsvImportResult, CurrencyCode, HoldingRow, AuthMode } from './types';
 
@@ -120,7 +121,6 @@ export default function App() {
   const refreshHoldings = useCallback(
     (database: Database) => {
       try {
-        // Auto-recalculate live compound interest market_price for FDs
         refreshFdHoldingsValuations(database);
 
         const stmt = database.prepare('SELECT * FROM holdings ORDER BY broker, name');
@@ -747,6 +747,12 @@ export default function App() {
               );
               await persistEncryptedVault(db);
               setStatusMsg(`Saved FD: ${fd.name}`);
+            }}
+            onAddBulkFDs={async (items) => {
+              saveBulkFdsToDb(db, items);
+              await persistEncryptedVault(db);
+              refreshHoldings(db);
+              setStatusMsg(`Bulk saved ${items.length} Fixed Deposits!`);
             }}
             onAddProperty={async (p) => {
               db.run(

@@ -16,11 +16,10 @@ import {
   ClipboardPaste,
   X,
   CheckCircle2,
-  TrendingUp,
 } from 'lucide-react';
 import { getProperties, getLiabilities } from '../db/database';
 import { BrokerGuide } from './BrokerGuide';
-import { parsePastedFdRows, saveBulkFdsToDb, ParsedFdItem } from '../parsers/fdImporter';
+import { parsePastedFdRows, ParsedFdItem } from '../parsers/fdImporter';
 import { calculateFdValuation } from '../utils/finance';
 
 interface ManageAssetsTabProps {
@@ -41,6 +40,7 @@ interface ManageAssetsTabProps {
     start_date: string;
     maturity_date: string;
   }) => void;
+  onAddBulkFDs?: (items: ParsedFdItem[]) => Promise<void> | void;
   onAddProperty: (p: {
     name: string;
     property_type: string;
@@ -85,6 +85,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
   onCsvImport,
   onClearBroker,
   onAddFD,
+  onAddBulkFDs,
   onAddProperty,
   onAddLiability,
   onUpdatePropertyValuation,
@@ -109,6 +110,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
   const [showFdPasteModal, setShowFdPasteModal] = useState<boolean>(false);
   const [pastedRawText, setPastedRawText] = useState<string>('');
   const [previewFdItems, setPreviewFdItems] = useState<ParsedFdItem[]>([]);
+  const [isSavingBulk, setIsSavingBulk] = useState<boolean>(false);
 
   // Fixed Deposit Form
   const [fdForm, setFdForm] = useState({
@@ -159,16 +161,18 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
     setPreviewFdItems(items);
   };
 
-  const handleSaveBulkFds = () => {
-    if (previewFdItems.length === 0) return;
+  const handleSaveBulkFds = async () => {
+    if (previewFdItems.length === 0 || !onAddBulkFDs) return;
     try {
-      saveBulkFdsToDb(db, previewFdItems);
+      setIsSavingBulk(true);
+      await onAddBulkFDs(previewFdItems);
       setShowFdPasteModal(false);
       setPastedRawText('');
       setPreviewFdItems([]);
-      window.location.reload();
     } catch (err: any) {
       alert(`Bulk save failed: ${err?.message || err}`);
+    } finally {
+      setIsSavingBulk(false);
     }
   };
 
@@ -371,7 +375,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
             </div>
           )}
 
-          {/* Clarification Guidance: Tradebook vs Holdings Snapshot */}
+          {/* Tradebook vs Holdings Snapshot Guide */}
           <div className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
             <div
               className={`p-4 rounded-2xl border ${
@@ -442,29 +446,26 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                         {h.market_price && h.market_price > 0 ? `${h.market_price.toFixed(2)} ${h.currency || 'SEK'}` : '-'}
                       </td>
                       <td className="py-3 text-right flex items-center justify-end gap-1">
-                        <button
-                          onClick={() => {
-                            const val = prompt(
-                              `Update market price for ${h.name || h.symbol}:`,
-                              String(h.market_price || h.avg_price)
-                            );
-                            if (val !== null) {
-                              const parsed = parseFloat(val);
-                              if (!isNaN(parsed) && parsed >= 0) {
-                                if (onUpdateHoldingValuation) {
+                        {onUpdateHoldingValuation && (
+                          <button
+                            onClick={() => {
+                              const val = prompt(
+                                `Update market price for ${h.name || h.symbol}:`,
+                                String(h.market_price || h.avg_price)
+                              );
+                              if (val !== null) {
+                                const parsed = parseFloat(val);
+                                if (!isNaN(parsed) && parsed >= 0) {
                                   onUpdateHoldingValuation(h.id, parsed);
-                                } else {
-                                  db.run(`UPDATE holdings SET market_price = ? WHERE id = ?`, [parsed, h.id]);
-                                  window.location.reload();
                                 }
                               }
-                            }
-                          }}
-                          className="text-indigo-400 hover:text-indigo-300 p-1"
-                          title="Update Market Price"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" />
-                        </button>
+                            }}
+                            className="text-indigo-400 hover:text-indigo-300 p-1"
+                            title="Update Market Price"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                         <button
                           onClick={() => onDeleteHolding(h.id)}
                           className="text-rose-400 hover:text-rose-300 p-1 rounded-lg hover:bg-rose-500/10 transition"
@@ -494,11 +495,11 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
         <div className="space-y-6">
           <div className="flex items-center justify-between">
             <h3 className="text-base font-bold flex items-center gap-2">
-              <Landmark className="w-4 h-4 text-emerald-400" /> Fixed Deposits & Term Accounts
+              <Landmark className="w-4 h-4 text-emerald-400" /> Fixed Deposits &amp; Term Accounts
             </h3>
             <button
               onClick={() => setShowFdPasteModal(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow transition"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow transition cursor-pointer"
             >
               <ClipboardPaste className="w-3.5 h-3.5" /> Quick Paste from Excel / Web
             </button>
@@ -626,7 +627,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
 
                 <button
                   type="submit"
-                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold transition flex items-center justify-center gap-1.5 shadow"
+                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold transition flex items-center justify-center gap-1.5 shadow cursor-pointer"
                 >
                   <Plus className="w-3.5 h-3.5" /> Save Deposit
                 </button>
@@ -697,24 +698,19 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                                 );
                                 if (valPrompt !== null) {
                                   const parsed = parseFloat(valPrompt);
-                                  if (!isNaN(parsed) && parsed > 0) {
-                                    db.run(`UPDATE holdings SET principal = ?, market_price = ? WHERE id = ?`, [
-                                      parsed,
-                                      parsed,
-                                      fd.id,
-                                    ]);
-                                    window.location.reload();
+                                  if (!isNaN(parsed) && parsed > 0 && onUpdateHoldingValuation) {
+                                    onUpdateHoldingValuation(fd.id, parsed);
                                   }
                                 }
                               }}
-                              className="text-indigo-400 hover:text-indigo-300 p-1"
+                              className="text-indigo-400 hover:text-indigo-300 p-1 cursor-pointer"
                               title="Update Principal"
                             >
                               <Edit2 className="w-3.5 h-3.5" />
                             </button>
                             <button
                               onClick={() => onDeleteHolding(fd.id)}
-                              className="text-rose-400 hover:text-rose-300 p-1"
+                              className="text-rose-400 hover:text-rose-300 p-1 cursor-pointer"
                               title="Delete Deposit"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
@@ -742,7 +738,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
       {showFdPasteModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
           <div
-            className={`w-full max-w-3xl rounded-3xl p-6 sm:p-8 shadow-2xl border space-y-4 max-h-[90vh] overflow-y-auto ${
+            className={`w-full max-w-4xl rounded-3xl p-6 sm:p-8 shadow-2xl border space-y-4 max-h-[90vh] overflow-y-auto ${
               isDark ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
             }`}
           >
@@ -761,7 +757,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                   setPastedRawText('');
                   setPreviewFdItems([]);
                 }}
-                className="opacity-70 hover:opacity-100 p-1"
+                className="opacity-70 hover:opacity-100 p-1 cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -769,48 +765,52 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
 
             <div>
               <div className="flex items-center justify-between text-[11px] opacity-70 mb-1">
-                <span>Expected columns: Bank | Name | Principal | Rate% | Currency | MaturityDate</span>
-                <span>{previewFdItems.length} rows recognized</span>
+                <span>
+                  <strong>Supported column order:</strong> Bank | Deposit Name | Principal | Rate % | Currency | Start Date | Maturity Date
+                </span>
+                <span className="font-mono text-emerald-400 font-bold">{previewFdItems.length} recognized</span>
               </div>
               <textarea
                 rows={5}
                 value={pastedRawText}
                 onChange={(e) => handleProcessPastedText(e.target.value)}
-                placeholder="Paste here... E.g.:&#10;SBAB&#9;Fasträntekonto 1Y&#9;100000&#9;3.75&#9;SEK&#9;2027-01-15&#10;HDFC&#9;Tax Saver FD&#9;50000&#9;7.10&#9;INR&#9;2030-05-10"
+                placeholder={'SBAB\tFasträntekonto 1Y\t100000\t3.75\tSEK\t2026-01-15\t2027-01-15\nHDFC\tTax Saver FD\t50000\t7.10\tINR\t2025-05-10\t2030-05-10'}
                 className={`w-full p-3 rounded-2xl border font-mono text-xs outline-none ${
                   isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300'
                 }`}
               />
             </div>
 
-            {/* Preview Table */}
+            {/* Preview Table with Start Date */}
             {previewFdItems.length > 0 && (
               <div className="space-y-2">
                 <span className="text-[11px] font-bold text-indigo-400 uppercase tracking-wider">
-                  Data Preview ({previewFdItems.length} deposits)
+                  Data Preview ({previewFdItems.length} deposits detected)
                 </span>
-                <div className="overflow-x-auto rounded-xl border border-slate-800/20 max-h-48">
+                <div className="overflow-x-auto rounded-xl border border-slate-800/20 max-h-52">
                   <table className="w-full text-left text-xs">
                     <thead className="bg-slate-950/20">
-                      <tr className="opacity-70">
+                      <tr className="opacity-70 border-b border-slate-800/30">
                         <th className="p-2">Bank</th>
                         <th className="p-2">Deposit Name</th>
                         <th className="p-2 text-right">Principal</th>
                         <th className="p-2 text-right">Rate</th>
                         <th className="p-2">Currency</th>
-                        <th className="p-2">Maturity</th>
+                        <th className="p-2">Start Date</th>
+                        <th className="p-2">Maturity Date</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/20 font-mono">
                       {previewFdItems.map((item, idx) => (
                         <tr key={idx} className="hover:bg-slate-800/10">
-                          <td className="p-2">{item.broker}</td>
+                          <td className="p-2 font-semibold">{item.broker}</td>
                           <td className="p-2">{item.name}</td>
                           <td className="p-2 text-right font-medium">
                             {item.principal.toLocaleString()}
                           </td>
                           <td className="p-2 text-right text-emerald-400">{item.interestRate}%</td>
                           <td className="p-2">{item.currency}</td>
+                          <td className="p-2 text-indigo-400">{item.startDate}</td>
                           <td className="p-2 opacity-80">{item.maturityDate || '-'}</td>
                         </tr>
                       ))}
@@ -827,16 +827,17 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                   setPastedRawText('');
                   setPreviewFdItems([]);
                 }}
-                className="px-4 py-2 rounded-xl text-xs font-semibold opacity-70 hover:opacity-100"
+                className="px-4 py-2 rounded-xl text-xs font-semibold opacity-70 hover:opacity-100 cursor-pointer"
               >
                 Cancel
               </button>
               <button
-                disabled={previewFdItems.length === 0}
+                disabled={previewFdItems.length === 0 || isSavingBulk}
                 onClick={handleSaveBulkFds}
-                className="flex items-center gap-1.5 px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-bold text-xs shadow transition"
+                className="flex items-center gap-1.5 px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-bold text-xs shadow transition cursor-pointer"
               >
-                <CheckCircle2 className="w-4 h-4" /> Save {previewFdItems.length} Deposits
+                <CheckCircle2 className="w-4 h-4" />
+                {isSavingBulk ? 'Saving & Encrypting...' : `Save ${previewFdItems.length} Deposits`}
               </button>
             </div>
           </div>
@@ -964,7 +965,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
 
               <button
                 type="submit"
-                className="w-full py-2.5 bg-sky-600 hover:bg-sky-500 text-white rounded-xl font-bold transition flex items-center justify-center gap-1.5 shadow"
+                className="w-full py-2.5 bg-sky-600 hover:bg-sky-500 text-white rounded-xl font-bold transition flex items-center justify-center gap-1.5 shadow cursor-pointer"
               >
                 <Plus className="w-3.5 h-3.5" /> Save Property
               </button>
@@ -1005,32 +1006,29 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                       </td>
                       <td className="py-3 text-right">
                         <div className="flex items-center justify-end gap-2">
-                          <button
-                            onClick={() => {
-                              const val = prompt(
-                                `Update current market valuation for ${p.name}:`,
-                                String(p.current_price)
-                              );
-                              if (val !== null) {
-                                const parsed = parseFloat(val);
-                                if (!isNaN(parsed) && parsed > 0) {
-                                  if (onUpdatePropertyValuation) {
+                          {onUpdatePropertyValuation && (
+                            <button
+                              onClick={() => {
+                                const val = prompt(
+                                  `Update current market valuation for ${p.name}:`,
+                                  String(p.current_price)
+                                );
+                                if (val !== null) {
+                                  const parsed = parseFloat(val);
+                                  if (!isNaN(parsed) && parsed > 0) {
                                     onUpdatePropertyValuation(p.id, parsed);
-                                  } else {
-                                    db.run(`UPDATE properties SET current_price = ? WHERE id = ?`, [parsed, p.id]);
-                                    window.location.reload();
                                   }
                                 }
-                              }
-                            }}
-                            className="px-2 py-1 rounded-lg bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 font-medium transition flex items-center gap-1"
-                            title="Update Valuation"
-                          >
-                            <Edit2 className="w-3.5 h-3.5" /> Edit
-                          </button>
+                              }}
+                              className="px-2 py-1 rounded-lg bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 font-medium transition flex items-center gap-1 cursor-pointer"
+                              title="Update Valuation"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" /> Edit
+                            </button>
+                          )}
                           <button
                             onClick={() => onDeleteProperty(p.id)}
-                            className="p-1 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 transition"
+                            className="p-1 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 transition cursor-pointer"
                             title="Delete Property"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -1160,7 +1158,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
 
               <button
                 type="submit"
-                className="w-full py-2.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl font-bold transition flex items-center justify-center gap-1.5 shadow"
+                className="w-full py-2.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl font-bold transition flex items-center justify-center gap-1.5 shadow cursor-pointer"
               >
                 <Plus className="w-3.5 h-3.5" /> Save Liability
               </button>
@@ -1196,35 +1194,29 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                         -{l.remaining_balance.toLocaleString()} {l.currency}
                       </td>
                       <td className="py-3 text-right flex items-center justify-end gap-2">
-                        <button
-                          onClick={() => {
-                            const val = prompt(
-                              `Update remaining balance for ${l.name}:`,
-                              String(l.remaining_balance)
-                            );
-                            if (val !== null) {
-                              const parsed = parseFloat(val);
-                              if (!isNaN(parsed) && parsed >= 0) {
-                                if (onUpdateLiabilityBalance) {
+                        {onUpdateLiabilityBalance && (
+                          <button
+                            onClick={() => {
+                              const val = prompt(
+                                `Update remaining balance for ${l.name}:`,
+                                String(l.remaining_balance)
+                              );
+                              if (val !== null) {
+                                const parsed = parseFloat(val);
+                                if (!isNaN(parsed) && parsed >= 0) {
                                   onUpdateLiabilityBalance(l.id, parsed);
-                                } else {
-                                  db.run(`UPDATE liabilities SET remaining_balance = ? WHERE id = ?`, [
-                                    parsed,
-                                    l.id,
-                                  ]);
-                                  window.location.reload();
                                 }
                               }
-                            }
-                          }}
-                          className="px-2 py-1 rounded-lg bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 font-medium transition flex items-center gap-1"
-                          title="Update Remaining Balance"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" /> Edit
-                        </button>
+                            }}
+                            className="px-2 py-1 rounded-lg bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 font-medium transition flex items-center gap-1 cursor-pointer"
+                            title="Update Remaining Balance"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" /> Edit
+                          </button>
+                        )}
                         <button
                           onClick={() => onDeleteLiability(l.id)}
-                          className="p-1 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 transition"
+                          className="p-1 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 transition cursor-pointer"
                           title="Delete Liability"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
