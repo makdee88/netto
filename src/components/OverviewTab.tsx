@@ -21,7 +21,15 @@ import {
   getAllTransactions,
   getAllHoldingSectors,
 } from '../db/database';
-import { CurrencyCode, HoldingRow, PropertyRow, LiabilityRow, TransactionRow, GicsSector } from '../types';
+import {
+  CurrencyCode,
+  HoldingRow,
+  PropertyRow,
+  LiabilityRow,
+  TransactionRow,
+  GicsSector,
+  SectorWeight,
+} from '../types';
 import type { Database } from 'sql.js';
 
 interface OverviewTabProps {
@@ -155,7 +163,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         const weights = sectorDatabaseMap[h.symbol];
 
         if (weights && weights.length > 0) {
-          weights.forEach((w) => {
+          weights.forEach((w: SectorWeight) => {
             const allocated = h.baseVal * (w.weight_pct / 100);
             summary[w.sector] = (summary[w.sector] || 0) + allocated;
           });

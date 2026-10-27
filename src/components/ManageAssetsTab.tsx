@@ -222,7 +222,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
 
     if (existing.length > 0) {
       existing.forEach((item) => {
-        initialWeights[item.sector] = item.weight_pct;
+        initialWeights[item.sector as GicsSector] = item.weight_pct;
       });
     } else {
       initialWeights['Other / Unclassified'] = 100;

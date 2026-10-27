@@ -1,7 +1,16 @@
 import initSqlJs from 'sql.js';
 import type { Database } from 'sql.js';
 import sqlWasmUrl from 'sql.js/dist/sql-wasm.wasm?url';
-import { HoldingRow, PropertyRow, LiabilityRow, TransactionRow, CurrencyCode } from '../types';
+import {
+  CurrencyCode,
+  HoldingRow,
+  PropertyRow,
+  LiabilityRow,
+  TransactionRow,
+  SnapshotRow,
+  SectorWeight,
+  GicsSector,
+} from '../types';
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS app_config (
@@ -663,6 +672,25 @@ export const initSectorTable = (db: Database) => {
       UNIQUE(symbol, sector)
     );
   `);
+};
+
+export const getAllHoldingSectors = (db: Database): Record<string, SectorWeight[]> => {
+  try {
+    const res = db.exec(`SELECT symbol, sector, weight_pct FROM holding_sectors`);
+    if (!res || res.length === 0) return {};
+    const map: Record<string, SectorWeight[]> = {};
+    res[0].values.forEach((row) => {
+      const sym = String(row[0]);
+      if (!map[sym]) map[sym] = [];
+      map[sym].push({
+        sector: row[1] as GicsSector,
+        weight_pct: Number(row[2]),
+      });
+    });
+    return map;
+  } catch {
+    return {};
+  }
 };
 
 export const getHoldingSectors = (db: Database, symbol: string): SectorWeight[] => {
