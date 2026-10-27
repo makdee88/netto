@@ -772,7 +772,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                     <th className="pb-2">Acquired</th>
                     <th className="pb-2 text-right">Purchase Cost</th>
                     <th className="pb-2 text-right">Current Valuation</th>
-                    <th className="pb-2 text-right">Action</th>
+                    <th className="pb-2 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/20">
@@ -789,31 +789,33 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                       <td className="py-3 text-right font-mono text-sky-400 font-bold">
                         {p.current_price.toLocaleString()} {p.currency}
                       </td>
-                      <td className="py-3 text-right flex items-center justify-end gap-2">
-                        {onUpdatePropertyValuation && (
-                          <button
-                            onClick={() => {
-                              const val = prompt(`Update current market valuation for ${p.name}:`, String(p.current_price));
-                              if (val !== null) {
-                                const parsed = parseFloat(val);
-                                if (!isNaN(parsed) && parsed > 0) {
-                                  onUpdatePropertyValuation(p.id, parsed);
+                      <td className="py-3 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          {onUpdatePropertyValuation && (
+                            <button
+                              onClick={() => {
+                                const val = prompt(`Update current market valuation for ${p.name}:`, String(p.current_price));
+                                if (val !== null) {
+                                  const parsed = parseFloat(val);
+                                  if (!isNaN(parsed) && parsed > 0) {
+                                    onUpdatePropertyValuation(p.id, parsed);
+                                  }
                                 }
-                              }
-                            }}
-                            className="text-indigo-400 hover:text-indigo-300 p-1 flex items-center gap-1"
-                            title="Update Valuation"
+                              }}
+                              className="px-2 py-1 rounded-lg bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 font-medium transition flex items-center gap-1"
+                              title="Update Valuation"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" /> Edit
+                            </button>
+                          )}
+                          <button
+                            onClick={() => onDeleteProperty(p.id)}
+                            className="p-1 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 transition"
+                            title="Delete Property"
                           >
-                            <Edit2 className="w-3.5 h-3.5" /> Edit
+                            <Trash2 className="w-3.5 h-3.5" />
                           </button>
-                        )}
-                        <button
-                          onClick={() => onDeleteProperty(p.id)}
-                          className="text-rose-400 hover:text-rose-300 p-1"
-                          title="Delete Property"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
