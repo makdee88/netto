@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import type { Database } from 'sql.js';
-import { HoldingRow, CurrencyCode, BrokerType } from '../types';
+import { HoldingRow, CurrencyCode, BrokerType, CsvImportResult } from '../types';
 import {
   FileSpreadsheet,
   Trash2,
@@ -21,7 +21,7 @@ interface ManageAssetsTabProps {
   holdings: HoldingRow[];
   theme: 'dark' | 'light';
   onBackToOverview: () => void;
-  onCsvImport: (file: File, broker: string) => Promise<any> | void;
+  onCsvImport: (file: File, broker: string) => Promise<CsvImportResult | void> | void;
   onClearBroker: (broker: string) => void;
   onAddFD: (fd: {
     broker: string;
@@ -60,6 +60,7 @@ const BROKER_OPTIONS: { value: BrokerType; label: string }[] = [
   { value: 'Avanza', label: 'Avanza (Sweden)' },
   { value: 'Nordnet', label: 'Nordnet (Nordics)' },
   { value: 'Zerodha', label: 'Zerodha (India)' },
+  { value: 'Kuvera', label: 'Kuvera (India - MFs)' },
   { value: 'Groww', label: 'Groww (India)' },
   { value: 'InteractiveBrokers', label: 'Interactive Brokers' },
   { value: 'Degiro', label: 'DEGIRO' },
@@ -87,6 +88,8 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
   const [selectedBroker, setSelectedBroker] = useState<BrokerType>('Avanza');
   const [activeFormTab, setActiveFormTab] = useState<'EQUITY' | 'FD' | 'PROPERTY' | 'LIABILITY'>('EQUITY');
   const [isUploading, setIsUploading] = useState<boolean>(false);
+  const [uploadStatus, setUploadStatus] = useState<string>('');
+  const [csvSummary, setCsvSummary] = useState<CsvImportResult | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Fixed Deposit Form
@@ -230,8 +233,16 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                   if (file) {
                     try {
                       setIsUploading(true);
-                      await onCsvImport(file, selectedBroker);
+                      setCsvSummary(null);
+                      setUploadStatus(`Reading and parsing ${file.name}...`);
+
+                      const summary = await onCsvImport(file, selectedBroker);
+                      if (summary) {
+                        setCsvSummary(summary);
+                        setUploadStatus('Import completed successfully!');
+                      }
                     } catch (err: any) {
+                      setUploadStatus(`Error: ${err?.message || err}`);
                       alert(`Import failed: ${err?.message || err}`);
                     } finally {
                       setIsUploading(false);
@@ -247,6 +258,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                 onClick={() => {
                   if (confirm(`Wipe all imported transactions and holdings for ${selectedBroker}?`)) {
                     onClearBroker(selectedBroker);
+                    setCsvSummary(null);
                   }
                 }}
                 className="p-2 border border-rose-500/30 text-rose-400 hover:bg-rose-500/10 rounded-xl text-xs font-semibold transition"
@@ -259,6 +271,64 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
 
           {/* Broker Export Guide */}
           <BrokerGuide broker={selectedBroker} isDark={isDark} />
+
+          {/* Interactive Loading / Summary Box */}
+          {(isUploading || csvSummary || uploadStatus) && (
+            <div className={`mb-6 p-4 rounded-2xl border text-xs transition-all ${
+              isUploading 
+                ? 'bg-indigo-500/10 border-indigo-500/30 text-indigo-300 animate-pulse' 
+                : csvSummary 
+                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' 
+                  : 'bg-slate-950/40 border-slate-800 text-slate-300'
+            }`}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 font-semibold">
+                  {isUploading ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
+                      <span>{uploadStatus || 'Processing broker report...'}</span>
+                    </>
+                  ) : csvSummary ? (
+                    <>
+                      <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                      <span>Import Summary ({csvSummary.broker} - {csvSummary.importType})</span>
+                    </>
+                  ) : (
+                    <span>{uploadStatus}</span>
+                  )}
+                </div>
+                {csvSummary && (
+                  <button
+                    onClick={() => setCsvSummary(null)}
+                    className="opacity-70 hover:opacity-100 text-[10px] underline"
+                  >
+                    Dismiss
+                  </button>
+                )}
+              </div>
+
+              {csvSummary && (
+                <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2 pt-3 border-t border-emerald-500/20 font-mono text-xs">
+                  <div>
+                    <span className="opacity-70 block text-[10px]">New Transactions:</span>
+                    <span className="font-bold text-emerald-400">+{csvSummary.newTransactionsAdded}</span>
+                  </div>
+                  <div>
+                    <span className="opacity-70 block text-[10px]">Holdings Updated:</span>
+                    <span className="font-bold">{csvSummary.holdingsUpdated}</span>
+                  </div>
+                  <div>
+                    <span className="opacity-70 block text-[10px]">Duplicates Skipped:</span>
+                    <span className="font-bold opacity-80">{csvSummary.duplicatesSkipped || 0}</span>
+                  </div>
+                  <div>
+                    <span className="opacity-70 block text-[10px]">Mode:</span>
+                    <span className="font-bold">{csvSummary.importType}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Clarification Guidance: Tradebook vs Holdings Snapshot */}
           <div className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
