@@ -54,14 +54,15 @@ export const BrokerGuide: React.FC<BrokerGuideProps> = ({ broker, isDark }) => {
     },
     InteractiveBrokers: {
       title: 'Interactive Brokers (IBKR)',
-      format: 'Activity Statement CSV',
-      currency: 'Multi-currency',
+      format: 'Transaction History CSV',
+      currency: 'USD / SEK / EUR (Multi-currency)',
       steps: [
-        'Log in to Client Portal -> Performance & Reports -> Statements.',
-        'Generate a Flexible Activity Statement including Trades and Current Positions in CSV format.',
-        'Upload the generated CSV file.',
+        'Log in to IBKR Client Portal.',
+        'Navigate to Performance & Reports -> Statements.',
+        'Select "Transaction History" and choose your date range.',
+        'Export / Download as CSV and upload the file here.',
       ],
-      notes: 'Parses global multi-currency trades and positions.',
+      notes: 'Parses execution dates, ticker symbols, quantities, and price currency across multiple asset classes.',
     },
     Groww: {
       title: 'Groww (India)',

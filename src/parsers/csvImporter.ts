@@ -37,7 +37,7 @@ export async function importBrokerCsv(
   broker: string,
   db: Database,
   onComplete: (summary: CsvImportResult) => void
-) {
+): Promise<CsvImportResult> {
   const isExcel =
     file.name.endsWith('.xlsx') ||
     file.name.endsWith('.xls') ||
@@ -46,7 +46,7 @@ export async function importBrokerCsv(
   if (isExcel) {
     const summary = await parseZerodhaExcel(file, db);
     onComplete(summary);
-    return;
+    return summary;
   }
 
   const text = await file.text();
@@ -59,6 +59,7 @@ export async function importBrokerCsv(
   try {
     const lowerBroker = broker.toLowerCase();
 
+    // 1. Avanza (Sweden)
     if (lowerBroker === 'avanza') {
       const rows = parseCsvLines(text, ';');
       if (rows.length < 2) throw new Error('Avanza CSV is empty or invalid.');
@@ -138,17 +139,19 @@ export async function importBrokerCsv(
 
       db.run('COMMIT');
 
-      onComplete({
+      const result: CsvImportResult = {
         broker: 'Avanza',
         importType: 'TRADEBOOK',
         newTransactionsAdded: newTxns,
         duplicatesSkipped: duplicates,
         holdingsUpdated: updatedCount,
         errors,
-      });
-      return;
+      };
+      onComplete(result);
+      return result;
     }
 
+    // 2. Kuvera (India - Mutual Funds)
     if (lowerBroker === 'kuvera') {
       const rows = parseCsvLines(text, ',');
       if (rows.length < 2) throw new Error('Kuvera CSV is empty or invalid.');
@@ -224,18 +227,124 @@ export async function importBrokerCsv(
 
       db.run('COMMIT');
 
-      onComplete({
+      const result: CsvImportResult = {
         broker: 'Kuvera',
         importType: 'TRADEBOOK',
         newTransactionsAdded: newTxns,
         duplicatesSkipped: duplicates,
         holdingsUpdated: updatedCount,
         errors,
-      });
-      return;
+      };
+      onComplete(result);
+      return result;
     }
 
-    // Standard CSV fallback (Generic / Other Brokers)
+    // 3. Interactive Brokers (IBKR Multi-section Activity Statement)
+    if (lowerBroker === 'interactivebrokers' || lowerBroker === 'ibkr') {
+      const allRows = parseCsvLines(text, ',');
+      if (allRows.length < 2) throw new Error('IBKR CSV is empty or invalid.');
+
+      const headerRow = allRows.find(
+        (r) => r[0]?.trim() === 'Transaction History' && r[1]?.trim() === 'Header'
+      );
+
+      if (!headerRow) {
+        throw new Error('Could not find "Transaction History,Header" section in IBKR CSV.');
+      }
+
+      const sectionHeaders = headerRow.slice(2).map((h) => h.trim().toLowerCase());
+      const dateIdx = sectionHeaders.findIndex((h) => h.includes('date'));
+      const descIdx = sectionHeaders.findIndex((h) => h.includes('description'));
+      const typeIdx = sectionHeaders.findIndex((h) => h.includes('transaction type') || h.includes('type'));
+      const symIdx = sectionHeaders.findIndex((h) => h.includes('symbol'));
+      const qtyIdx = sectionHeaders.findIndex((h) => h.includes('quantity') || h.includes('qty'));
+      const priceIdx = sectionHeaders.findIndex((h) => h.includes('price') && !h.includes('currency'));
+      const currIdx = sectionHeaders.findIndex((h) => h.includes('price currency') || h.includes('currency'));
+      const amtIdx = sectionHeaders.findIndex((h) => h.includes('net amount') || h.includes('gross amount'));
+
+      const dataRows = allRows.filter(
+        (r) => r[0]?.trim() === 'Transaction History' && r[1]?.trim() === 'Data'
+      );
+
+      for (const rawRow of dataRows) {
+        const r = rawRow.slice(2);
+        if (!r || r.length < 5) continue;
+
+        const rawType = (r[typeIdx] || 'Buy').trim().toUpperCase();
+        let txType = 'BUY';
+        if (rawType.includes('SELL')) txType = 'SELL';
+        else if (rawType.includes('DIVIDEND')) txType = 'DIVIDEND';
+        else if (!rawType.includes('BUY')) continue;
+
+        const txDate = (r[dateIdx] || new Date().toISOString().slice(0, 10)).trim().slice(0, 10);
+        const symbol = (r[symIdx] || '').trim().toUpperCase();
+        const name = (r[descIdx] || symbol).trim();
+        const quantity = Math.abs(normalizeNumber(r[qtyIdx]));
+        const price = normalizeNumber(r[priceIdx]);
+        const currency = (r[currIdx] || 'USD').trim().toUpperCase();
+        const rawAmount = amtIdx !== -1 ? Math.abs(normalizeNumber(r[amtIdx])) : quantity * price;
+
+        if (!symbol || (quantity <= 0 && txType !== 'DIVIDEND')) continue;
+
+        const txHash = `IBKR_${symbol}_${txDate}_${txType}_${quantity}_${price}_${currency}`;
+
+        const checkRes = db.exec(`SELECT id FROM transactions WHERE tx_hash = ?`, [txHash]);
+        if (checkRes.length > 0 && checkRes[0].values.length > 0) {
+          duplicates++;
+          continue;
+        }
+
+        db.run(
+          `INSERT INTO transactions (broker, symbol, name, tx_type, tx_date, quantity, price, amount, currency, tx_hash)
+           VALUES ('InteractiveBrokers', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [symbol, name, txType, txDate, quantity, price, rawAmount, currency, txHash]
+        );
+        newTxns++;
+      }
+
+      db.run(`DELETE FROM holdings WHERE broker = 'InteractiveBrokers' AND category = 'EQUITY'`);
+
+      const hStmt = db.prepare(`
+        SELECT 
+          symbol, name, currency,
+          SUM(CASE WHEN tx_type = 'BUY' THEN quantity WHEN tx_type = 'SELL' THEN -quantity ELSE 0 END) as net_qty,
+          SUM(CASE WHEN tx_type = 'BUY' THEN quantity * price ELSE 0 END) as total_cost,
+          SUM(CASE WHEN tx_type = 'BUY' THEN quantity ELSE 0 END) as buy_qty
+        FROM transactions
+        WHERE broker = 'InteractiveBrokers'
+        GROUP BY symbol, currency
+      `);
+
+      let updatedCount = 0;
+      while (hStmt.step()) {
+        const h = hStmt.getAsObject() as any;
+        if (h.net_qty > 0) {
+          const avgPrice = h.buy_qty > 0 ? h.total_cost / h.buy_qty : 0;
+          db.run(
+            `INSERT INTO holdings (broker, category, symbol, name, currency, quantity, avg_price, market_price)
+             VALUES ('InteractiveBrokers', 'EQUITY', ?, ?, ?, ?, ?, ?)`,
+            [h.symbol, h.name, h.currency || 'USD', h.net_qty, avgPrice, avgPrice]
+          );
+          updatedCount++;
+        }
+      }
+      hStmt.free();
+
+      db.run('COMMIT');
+
+      const result: CsvImportResult = {
+        broker: 'InteractiveBrokers',
+        importType: 'TRADEBOOK',
+        newTransactionsAdded: newTxns,
+        duplicatesSkipped: duplicates,
+        holdingsUpdated: updatedCount,
+        errors,
+      };
+      onComplete(result);
+      return result;
+    }
+
+    // 4. Standard Generic CSV Fallback
     const delimiter = text.includes(';') ? ';' : ',';
     const rows = parseCsvLines(text, delimiter);
     if (rows.length < 2) throw new Error('CSV is empty or invalid.');
@@ -246,6 +355,7 @@ export async function importBrokerCsv(
     const qtyIdx = headers.findIndex((h) => h.includes('quantity') || h.includes('qty'));
     const priceIdx = headers.findIndex((h) => h.includes('price') || h.includes('avg. cost'));
     const dateIdx = headers.findIndex((h) => h.includes('date'));
+    const currIdx = headers.findIndex((h) => h.includes('currency') || h.includes('valuta'));
 
     for (let i = 1; i < rows.length; i++) {
       const r = rows[i];
@@ -259,8 +369,9 @@ export async function importBrokerCsv(
       const quantity = Math.abs(normalizeNumber(r[qtyIdx]));
       const price = normalizeNumber(r[priceIdx]);
       const amount = quantity * price;
+      const currency = (currIdx !== -1 && r[currIdx] ? r[currIdx].trim().toUpperCase() : 'SEK');
       const txDate = (r[dateIdx] || new Date().toISOString().slice(0, 10)).slice(0, 10);
-      const txHash = `${broker}_${symbol}_${txDate}_${txType}_${quantity}_${price}`;
+      const txHash = `${broker}_${symbol}_${txDate}_${txType}_${quantity}_${price}_${currency}`;
 
       if (quantity <= 0) continue;
 
@@ -272,8 +383,8 @@ export async function importBrokerCsv(
 
       db.run(
         `INSERT INTO transactions (broker, symbol, name, tx_type, tx_date, quantity, price, amount, currency, tx_hash)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'INR', ?)`,
-        [broker, symbol, symbol, txType, txDate, quantity, price, amount, txHash]
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [broker, symbol, symbol, txType, txDate, quantity, price, amount, currency, txHash]
       );
       newTxns++;
     }
@@ -289,7 +400,7 @@ export async function importBrokerCsv(
         SUM(CASE WHEN tx_type = 'BUY' THEN quantity ELSE 0 END) as buy_qty
       FROM transactions
       WHERE broker = '${safeBroker}'
-      GROUP BY symbol
+      GROUP BY symbol, currency
     `);
 
     let updatedCount = 0;
@@ -298,8 +409,9 @@ export async function importBrokerCsv(
       if (h.net_qty > 0) {
         const avgPrice = h.buy_qty > 0 ? h.total_cost / h.buy_qty : 0;
         db.run(
-          `INSERT INTO holdings (broker, 'EQUITY', ?, ?, ?, ?, ?, ?)`,
-          [broker, h.symbol, h.name, h.currency || 'INR', h.net_qty, avgPrice, avgPrice]
+          `INSERT INTO holdings (broker, category, symbol, name, currency, quantity, avg_price, market_price)
+           VALUES (?, 'EQUITY', ?, ?, ?, ?, ?, ?)`,
+          [broker, h.symbol, h.name, h.currency || 'SEK', h.net_qty, avgPrice, avgPrice]
         );
         updatedCount++;
       }
@@ -308,14 +420,16 @@ export async function importBrokerCsv(
 
     db.run('COMMIT');
 
-    onComplete({
+    const result: CsvImportResult = {
       broker,
       importType: 'TRADEBOOK',
       newTransactionsAdded: newTxns,
       duplicatesSkipped: duplicates,
       holdingsUpdated: updatedCount,
       errors,
-    });
+    };
+    onComplete(result);
+    return result;
   } catch (err: any) {
     db.run('ROLLBACK');
     throw new Error(`CSV Import failed: ${err?.message || err}`);
