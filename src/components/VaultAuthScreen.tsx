@@ -1,28 +1,32 @@
-import React, { useState } from 'react';
-import { AuthMode } from '../types';
+import React, { useState, useRef } from 'react';
 import {
   Lock,
+  Unlock,
   KeyRound,
-  FileUp,
-  CloudDownload,
+  ShieldCheck,
   AlertTriangle,
-  RotateCcw,
+  FolderOpen,
   ArrowLeft,
-  ShieldAlert,
-  UserCheck,
+  CloudDownload,
+  Trash2,
+  Eye,
+  EyeOff,
+  BookOpen,
 } from 'lucide-react';
+import { AuthMode } from '../types';
+import { HowToUseModal } from './HowToUseModal';
 
-export interface VaultAuthScreenProps {
+interface VaultAuthScreenProps {
   authMode: AuthMode;
-  setAuthMode: React.Dispatch<React.SetStateAction<AuthMode>>;
+  setAuthMode: (mode: AuthMode) => void;
   hasExistingVault: boolean;
-  theme?: 'dark' | 'light';
-  userEmail?: string;
-  activeVaultName?: string;
+  theme: 'dark' | 'light';
+  userEmail: string;
+  activeVaultName: string;
   onBackToLanding: () => void;
   onUnlockOrCreate: (
-    passInput: string,
-    passConfirm: string,
+    passphrase: string,
+    passphraseConfirm: string,
     restoreBytes: Uint8Array | null,
     restoreName: string
   ) => Promise<void>;
@@ -34,7 +38,7 @@ export const VaultAuthScreen: React.FC<VaultAuthScreenProps> = ({
   authMode,
   setAuthMode,
   hasExistingVault,
-  theme = 'dark',
+  theme,
   userEmail,
   activeVaultName,
   onBackToLanding,
@@ -44,77 +48,127 @@ export const VaultAuthScreen: React.FC<VaultAuthScreenProps> = ({
 }) => {
   const isDark = theme === 'dark';
 
-  const [passphrase, setPassphrase] = useState('');
-  const [passphraseConfirm, setPassphraseConfirm] = useState('');
+  const [passphrase, setPassphrase] = useState<string>('');
+  const [passphraseConfirm, setPassphraseConfirm] = useState<string>('');
+  const [showPassword, setShowPassword] = useState<boolean>(false);
   const [restoreBytes, setRestoreBytes] = useState<Uint8Array | null>(null);
   const [restoreFileName, setRestoreFileName] = useState<string>('');
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string>('');
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [showHowToUse, setShowHowToUse] = useState<boolean>(false);
 
-  const isCreatingNew = authMode === 'CREATE_OR_UNLOCK' && !hasExistingVault;
-  const isRestoring = authMode === 'RESTORE_RETURNING';
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const isUnlock = hasExistingVault && authMode === 'CREATE_OR_UNLOCK';
+  const isCreate = !hasExistingVault && authMode === 'CREATE_OR_UNLOCK';
+  const isRestore = authMode === 'RESTORE_RETURNING';
+
+  const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
     try {
       const buffer = await file.arrayBuffer();
       setRestoreBytes(new Uint8Array(buffer));
       setRestoreFileName(file.name);
-      setErrorMsg(null);
-    } catch {
-      setErrorMsg('Failed to read encrypted file.');
+      setErrorMessage('');
+    } catch (err: any) {
+      setErrorMessage(`Failed to read backup file: ${err?.message || err}`);
     }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setErrorMsg(null);
-    setLoading(true);
+    setErrorMessage('');
+    setIsLoading(true);
 
     try {
-      await onUnlockOrCreate(
-        passphrase,
-        passphraseConfirm,
-        restoreBytes,
-        restoreFileName
-      );
+      await onUnlockOrCreate(passphrase, passphraseConfirm, restoreBytes, restoreFileName);
     } catch (err: any) {
-      setErrorMsg(err?.message || 'Authentication error');
+      setErrorMessage(err?.message || 'Authentication failed. Check your passphrase.');
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   };
 
   return (
-    <div className={`min-h-screen flex items-center justify-center p-4 transition-colors ${
-      isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'
-    }`}>
-      <div className={`max-w-md w-full border rounded-3xl p-8 shadow-2xl space-y-6 transition-colors ${
-        isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
-      }`}>
+    <div
+      className={`min-h-screen flex flex-col justify-center items-center p-4 sm:p-6 transition-colors ${
+        isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'
+      }`}
+    >
+      <div className="w-full max-w-md space-y-6">
+        {/* Header navigation & title */}
         <div className="flex items-center justify-between">
           <button
             onClick={onBackToLanding}
-            className={`flex items-center gap-1.5 text-xs font-medium transition ${
-              isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-600 hover:text-slate-900'
-            }`}
+            className="flex items-center gap-1.5 text-xs font-semibold opacity-75 hover:opacity-100 transition cursor-pointer"
           >
-            <ArrowLeft className="w-4 h-4" /> Home
+            <ArrowLeft className="w-4 h-4" />
+            <span>Home</span>
           </button>
-          <div className={`flex gap-1 text-[11px] font-semibold p-1 rounded-xl border ${
-            isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-100 border-slate-200'
-          }`}>
+          <span className="text-[11px] font-mono opacity-60">
+            {userEmail ? `${userEmail}` : 'Guest Session'}
+          </span>
+        </div>
+
+        {/* Vault Card */}
+        <div
+          className={`p-6 sm:p-8 rounded-3xl border shadow-xl transition-all ${
+            isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+          }`}
+        >
+          {/* Vault Status Icon */}
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-3">
+              <div
+                className={`p-3 rounded-2xl border ${
+                  isUnlock
+                    ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
+                    : isCreate
+                    ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+                    : 'bg-indigo-500/10 border-indigo-500/20 text-indigo-400'
+                }`}
+              >
+                {isUnlock ? <Lock className="w-6 h-6" /> : isCreate ? <KeyRound className="w-6 h-6" /> : <FolderOpen className="w-6 h-6" />}
+              </div>
+              <div>
+                <h2 className="text-lg font-bold">
+                  {isUnlock ? 'Unlock Vault' : isCreate ? 'Initialize New Vault' : 'Restore Vault'}
+                </h2>
+                <div className="flex items-center gap-1.5 mt-0.5">
+                  <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-slate-950/30 border border-slate-800 text-indigo-400">
+                    {activeVaultName}
+                  </span>
+                  <span className="text-[10px] opacity-60">AES-256-GCM</span>
+                </div>
+              </div>
+            </div>
+
+            {hasExistingVault && (
+              <button
+                type="button"
+                onClick={onResetLocalCache}
+                className="p-2 rounded-xl text-rose-400 hover:bg-rose-500/10 transition cursor-pointer"
+                title="Clear cached vault slot"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+
+          {/* Mode Tabs */}
+          <div className="flex rounded-xl bg-slate-950/20 p-1 mb-6 text-xs font-semibold">
             <button
               type="button"
               onClick={() => {
-                setErrorMsg(null);
                 setAuthMode('CREATE_OR_UNLOCK');
+                setErrorMessage('');
               }}
-              className={`px-3 py-1 rounded-lg transition ${
-                !isRestoring
+              className={`flex-1 py-1.5 rounded-lg transition cursor-pointer ${
+                authMode === 'CREATE_OR_UNLOCK'
                   ? 'bg-indigo-600 text-white shadow'
-                  : isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-600 hover:text-slate-900'
+                  : 'opacity-70 hover:opacity-100'
               }`}
             >
               {hasExistingVault ? 'Unlock' : 'Create'}
@@ -122,227 +176,178 @@ export const VaultAuthScreen: React.FC<VaultAuthScreenProps> = ({
             <button
               type="button"
               onClick={() => {
-                setErrorMsg(null);
                 setAuthMode('RESTORE_RETURNING');
+                setErrorMessage('');
               }}
-              className={`px-3 py-1 rounded-lg transition ${
-                isRestoring
+              className={`flex-1 py-1.5 rounded-lg transition cursor-pointer ${
+                authMode === 'RESTORE_RETURNING'
                   ? 'bg-indigo-600 text-white shadow'
-                  : isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-600 hover:text-slate-900'
+                  : 'opacity-70 hover:opacity-100'
               }`}
             >
-              Restore
+              Restore Backup
             </button>
           </div>
-        </div>
 
-        {/* User Identity Banner */}
-        {userEmail ? (
-          <div className={`flex items-center justify-between p-3 rounded-2xl border text-xs shadow-inner ${
-            isDark
-              ? 'bg-slate-950 border-emerald-500/30'
-              : 'bg-emerald-50/60 border-emerald-300'
-          }`}>
-            <div className="flex items-center gap-2.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
-              <div>
-                <span className={`text-[10px] uppercase font-bold block leading-none ${
-                  isDark ? 'text-emerald-400' : 'text-emerald-700'
-                }`}>
-                  Authenticated User
-                </span>
-                <span className={`font-semibold mt-0.5 block ${
-                  isDark ? 'text-slate-100' : 'text-slate-900'
-                }`}>
-                  {userEmail}
-                </span>
-              </div>
-            </div>
-            <span className={`px-2.5 py-1 rounded-lg font-mono text-xs font-semibold border ${
-              isDark
-                ? 'bg-indigo-600/30 text-indigo-300 border-indigo-500/20'
-                : 'bg-indigo-100 text-indigo-700 border-indigo-200'
-            }`}>
-              {activeVaultName || 'Personal'}
-            </span>
-          </div>
-        ) : null}
+          {/* Form */}
+          <form onSubmit={handleSubmit} className="space-y-4 text-xs">
+            {/* Restore File Pickers */}
+            {isRestore && (
+              <div className="space-y-3 pb-2 border-b border-slate-800/40">
+                <label className="block font-semibold opacity-80">Select Vault Backup (.sqlite.enc)</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className={`flex items-center justify-center gap-1.5 p-2.5 rounded-xl border font-semibold transition cursor-pointer ${
+                      isDark ? 'border-slate-800 bg-slate-950/50 hover:bg-slate-950' : 'border-slate-300 bg-slate-50 hover:bg-white'
+                    }`}
+                  >
+                    <FolderOpen className="w-4 h-4 text-indigo-400" />
+                    <span>Upload File</span>
+                  </button>
 
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <div className={`p-2 rounded-xl border ${
-              isDark
-                ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20'
-                : 'bg-indigo-50 text-indigo-600 border-indigo-200'
-            }`}>
-              {isCreatingNew ? (
-                <KeyRound className="w-5 h-5" />
-              ) : isRestoring ? (
-                <FileUp className="w-5 h-5" />
-              ) : (
-                <Lock className="w-5 h-5" />
-              )}
-            </div>
-            <h2 className="text-xl font-bold tracking-tight">
-              {isCreatingNew
-                ? `Create Vault [${activeVaultName || 'Personal'}]`
-                : isRestoring
-                ? `Restore Vault [${activeVaultName || 'Personal'}]`
-                : `Unlock Vault [${activeVaultName || 'Personal'}]`}
-            </h2>
-          </div>
-          <p className={`text-xs leading-relaxed ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
-            {isCreatingNew
-              ? 'Choose a strong passphrase. All assets are locally encrypted in browser storage via AES-256-GCM.'
-              : isRestoring
-              ? 'Load your .sqlite.enc file or pull from Google Drive, then enter your passphrase.'
-              : 'Enter your passphrase to decrypt your local SQLite ledger.'}
-          </p>
-        </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setErrorMessage('');
+                      onFetchGoogleDriveVault((bytes) => {
+                        setRestoreBytes(bytes);
+                        setRestoreFileName(`gdrive_${activeVaultName}.sqlite.enc`);
+                      });
+                    }}
+                    className={`flex items-center justify-center gap-1.5 p-2.5 rounded-xl border font-semibold transition cursor-pointer ${
+                      isDark ? 'border-slate-800 bg-slate-950/50 hover:bg-slate-950' : 'border-slate-300 bg-slate-50 hover:bg-white'
+                    }`}
+                  >
+                    <CloudDownload className="w-4 h-4 text-emerald-400" />
+                    <span>Google Drive</span>
+                  </button>
+                </div>
 
-        {errorMsg && (
-          <div className="p-3.5 bg-rose-950/40 border border-rose-800/60 rounded-xl text-xs text-rose-200 flex items-start gap-2.5">
-            <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-            <span>{errorMsg}</span>
-          </div>
-        )}
-
-        {isRestoring && (
-          <div className={`space-y-3 p-4 border rounded-2xl ${
-            isDark ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-50 border-slate-200'
-          }`}>
-            <div className="flex gap-2">
-              <label className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl border text-xs font-semibold cursor-pointer transition ${
-                isDark
-                  ? 'border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-100'
-                  : 'border-slate-300 bg-white hover:bg-slate-100 text-slate-800'
-              }`}>
-                <FileUp className="w-4 h-4 text-indigo-500" />
-                <span>Upload File</span>
                 <input
+                  ref={fileInputRef}
                   type="file"
-                  accept=".enc,.sqlite.enc"
-                  onChange={handleFileUpload}
+                  accept=".enc, .sqlite, .db, application/octet-stream"
+                  onChange={handleFileSelected}
                   className="hidden"
                 />
-              </label>
 
-              <button
-                type="button"
-                onClick={() =>
-                  onFetchGoogleDriveVault((bytes: Uint8Array) => {
-                    setRestoreBytes(bytes);
-                    setRestoreFileName('Google Drive Backup');
-                    setErrorMsg(null);
-                  })
-                }
-                className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl border text-xs font-semibold transition ${
-                  isDark
-                    ? 'border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-100'
-                    : 'border-slate-300 bg-white hover:bg-slate-100 text-slate-800'
-                }`}
-              >
-                <CloudDownload className="w-4 h-4 text-emerald-500" />
-                <span>Google Drive</span>
-              </button>
-            </div>
-
-            {restoreFileName && (
-              <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium text-center">
-                Loaded: {restoreFileName}
-              </p>
+                {restoreFileName && (
+                  <div className="flex items-center gap-2 p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-mono text-[11px]">
+                    <ShieldCheck className="w-4 h-4 shrink-0" />
+                    <span className="truncate">{restoreFileName}</span>
+                  </div>
+                )}
+              </div>
             )}
-          </div>
-        )}
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className={`block text-xs font-semibold uppercase tracking-wider mb-1.5 ${
-              isDark ? 'text-slate-400' : 'text-slate-600'
-            }`}>
-              Vault Passphrase
-            </label>
-            <input
-              type="password"
-              required
-              minLength={6}
-              value={passphrase}
-              onChange={(e) => setPassphrase(e.target.value)}
-              placeholder="••••••••••••"
-              className={`w-full px-3.5 py-2.5 border rounded-xl text-sm focus:outline-none focus:border-indigo-500 transition ${
-                isDark
-                  ? 'bg-slate-950 border-slate-800 text-slate-100'
-                  : 'bg-white border-slate-300 text-slate-900 shadow-sm'
-              }`}
-            />
-          </div>
+            {/* Passphrase Input */}
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <label className="font-semibold opacity-80">
+                  {isUnlock ? 'Vault Passphrase' : isCreate ? 'Create Master Passphrase' : 'Vault Encryption Passphrase'}
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="opacity-60 hover:opacity-100 transition p-0.5 cursor-pointer"
+                >
+                  {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                </button>
+              </div>
 
-          {isCreatingNew && (
-            <div>
-              <label className={`block text-xs font-semibold uppercase tracking-wider mb-1.5 ${
-                isDark ? 'text-slate-400' : 'text-slate-600'
-              }`}>
-                Confirm Passphrase
-              </label>
               <input
-                type="password"
+                type={showPassword ? 'text' : 'password'}
                 required
-                minLength={6}
-                value={passphraseConfirm}
-                onChange={(e) => setPassphraseConfirm(e.target.value)}
-                placeholder="••••••••••••"
-                className={`w-full px-3.5 py-2.5 border rounded-xl text-sm focus:outline-none focus:border-indigo-500 transition ${
+                value={passphrase}
+                onChange={(e) => setPassphrase(e.target.value)}
+                placeholder="Minimum 6 characters"
+                className={`w-full px-3.5 py-2.5 rounded-xl border font-mono text-xs outline-none transition ${
                   isDark
-                    ? 'bg-slate-950 border-slate-800 text-slate-100'
-                    : 'bg-white border-slate-300 text-slate-900 shadow-sm'
+                    ? 'bg-slate-950 border-slate-800 focus:border-indigo-500 text-slate-100'
+                    : 'bg-white border-slate-300 focus:border-indigo-500 text-slate-900'
                 }`}
               />
             </div>
-          )}
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-sm shadow-lg shadow-indigo-600/20 transition disabled:opacity-50"
-          >
-            {loading
-              ? 'Processing...'
-              : isCreatingNew
-              ? 'Initialize & Encrypt Vault'
-              : isRestoring
-              ? 'Decrypt & Restore Vault'
-              : 'Unlock Vault'}
-          </button>
-        </form>
-        {/* Inside VaultAuthScreen.tsx below the submit buttons */}
-        <div className="pt-2 text-center">
-          <button
-            type="button"
-            onClick={() => setShowHowToUse(true)}
-            className="inline-flex items-center gap-1.5 text-xs text-indigo-400 hover:text-indigo-300 opacity-80 hover:opacity-100 transition cursor-pointer"
-          >
-            <BookOpen className="w-3.5 h-3.5" />
-            <span>How does vault encryption &amp; restore work?</span>
-          </button>
-        </div>
+            {/* Confirm Passphrase for Brand New Vault */}
+            {isCreate && (
+              <div className="space-y-1">
+                <label className="font-semibold opacity-80">Confirm Master Passphrase</label>
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  value={passphraseConfirm}
+                  onChange={(e) => setPassphraseConfirm(e.target.value)}
+                  placeholder="Repeat master passphrase"
+                  className={`w-full px-3.5 py-2.5 rounded-xl border font-mono text-xs outline-none transition ${
+                    isDark
+                      ? 'bg-slate-950 border-slate-800 focus:border-indigo-500 text-slate-100'
+                      : 'bg-white border-slate-300 focus:border-indigo-500 text-slate-900'
+                  }`}
+                />
+              </div>
+            )}
 
-        {hasExistingVault && (
-          <div className={`pt-2 border-t flex justify-between items-center text-[11px] ${
-            isDark ? 'border-slate-800 text-slate-500' : 'border-slate-200 text-slate-500'
-          }`}>
-            <span className="flex items-center gap-1">
-              <ShieldAlert className="w-3.5 h-3.5 text-indigo-500" /> Local encrypted cache detected
-            </span>
+            {/* Error Message */}
+            {errorMessage && (
+              <div className="flex items-start gap-2 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs">
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{errorMessage}</span>
+              </div>
+            )}
+
+            {/* Submit Action */}
+            <button
+              type="submit"
+              disabled={isLoading || (isRestore && !restoreBytes)}
+              className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white font-bold text-xs shadow-lg shadow-indigo-600/20 transition flex items-center justify-center gap-2 cursor-pointer"
+            >
+              {isLoading ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <span>Processing Cryptographic Handshake...</span>
+                </>
+              ) : isUnlock ? (
+                <>
+                  <Unlock className="w-4 h-4" />
+                  <span>Unlock Vault</span>
+                </>
+              ) : isCreate ? (
+                <>
+                  <ShieldCheck className="w-4 h-4" />
+                  <span>Create Encrypted Vault</span>
+                </>
+              ) : (
+                <>
+                  <FolderOpen className="w-4 h-4" />
+                  <span>Decrypt &amp; Restore Vault</span>
+                </>
+              )}
+            </button>
+          </form>
+
+          {/* Educational helper link to trigger HowToUseModal */}
+          <div className="pt-4 text-center">
             <button
               type="button"
-              onClick={onResetLocalCache}
-              className="flex items-center gap-1 hover:text-rose-500 transition font-medium"
+              onClick={() => setShowHowToUse(true)}
+              className="inline-flex items-center gap-1.5 text-xs text-indigo-400 hover:text-indigo-300 opacity-80 hover:opacity-100 transition cursor-pointer"
             >
-              <RotateCcw className="w-3 h-3" /> Reset Cache
+              <BookOpen className="w-3.5 h-3.5" />
+              <span>How does vault encryption &amp; restore work?</span>
             </button>
           </div>
-        )}
+        </div>
       </div>
+
+      {/* Embedded How To Use Modal */}
+      <HowToUseModal
+        isOpen={showHowToUse}
+        onClose={() => setShowHowToUse(false)}
+        theme={theme}
+      />
     </div>
   );
 };
