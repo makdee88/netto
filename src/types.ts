@@ -9,6 +9,7 @@ export type BrokerType =
   | 'Nordnet' 
   | 'Zerodha' 
   | 'Groww' 
+  | 'Kuvera'
   | 'InteractiveBrokers' 
   | 'Degiro' 
   | 'Generic' 

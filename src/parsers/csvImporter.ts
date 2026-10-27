@@ -57,7 +57,9 @@ export async function importBrokerCsv(
   db.run('BEGIN TRANSACTION');
 
   try {
-    if (broker.toLowerCase() === 'avanza') {
+    const lowerBroker = broker.toLowerCase();
+
+    if (lowerBroker === 'avanza') {
       const rows = parseCsvLines(text, ';');
       if (rows.length < 2) throw new Error('Avanza CSV is empty or invalid.');
 
@@ -147,6 +149,92 @@ export async function importBrokerCsv(
       return;
     }
 
+    if (lowerBroker === 'kuvera') {
+      const rows = parseCsvLines(text, ',');
+      if (rows.length < 2) throw new Error('Kuvera CSV is empty or invalid.');
+
+      const headers = rows[0].map((h) => h.toLowerCase());
+      const dateIdx = headers.findIndex((h) => h.includes('date'));
+      const folioIdx = headers.findIndex((h) => h.includes('folio'));
+      const nameIdx = headers.findIndex((h) => h.includes('fund') || h.includes('name'));
+      const orderIdx = headers.findIndex((h) => h.includes('order') || h.includes('type'));
+      const unitsIdx = headers.findIndex((h) => h.includes('unit') || h.includes('quantity'));
+      const navIdx = headers.findIndex((h) => h.includes('nav') || h.includes('price'));
+      const amtIdx = headers.findIndex((h) => h.includes('amount'));
+
+      for (let i = 1; i < rows.length; i++) {
+        const r = rows[i];
+        if (!r || r.length < 4) continue;
+
+        const rawOrder = (r[orderIdx] || 'buy').toLowerCase();
+        let txType = rawOrder.includes('sell') ? 'SELL' : 'BUY';
+
+        const txDate = (r[dateIdx] || new Date().toISOString().slice(0, 10)).trim().slice(0, 10);
+        const name = (r[nameIdx] || 'Unknown Fund').trim();
+        const symbol = name.toUpperCase().replace(/[^A-Z0-9]/g, '_').slice(0, 30);
+        const quantity = Math.abs(normalizeNumber(r[unitsIdx]));
+        const price = normalizeNumber(r[navIdx]);
+        const amount = amtIdx !== -1 ? Math.abs(normalizeNumber(r[amtIdx])) : quantity * price;
+        const folio = folioIdx !== -1 ? r[folioIdx] : '';
+        const txHash = `KUVERA_${symbol}_${txDate}_${txType}_${quantity}_${price}_${folio}`;
+
+        if (quantity <= 0) continue;
+
+        const checkRes = db.exec(`SELECT id FROM transactions WHERE tx_hash = ?`, [txHash]);
+        if (checkRes.length > 0 && checkRes[0].values.length > 0) {
+          duplicates++;
+          continue;
+        }
+
+        db.run(
+          `INSERT INTO transactions (broker, symbol, name, tx_type, tx_date, quantity, price, amount, currency, tx_hash)
+           VALUES ('Kuvera', ?, ?, ?, ?, ?, ?, ?, 'INR', ?)`,
+          [symbol, name, txType, txDate, quantity, price, amount, txHash]
+        );
+        newTxns++;
+      }
+
+      db.run(`DELETE FROM holdings WHERE broker = 'Kuvera'`);
+
+      const hStmt = db.prepare(`
+        SELECT 
+          symbol, name, currency,
+          SUM(CASE WHEN tx_type = 'BUY' THEN quantity WHEN tx_type = 'SELL' THEN -quantity ELSE 0 END) as net_qty,
+          SUM(CASE WHEN tx_type = 'BUY' THEN quantity * price ELSE 0 END) as total_cost,
+          SUM(CASE WHEN tx_type = 'BUY' THEN quantity ELSE 0 END) as buy_qty
+        FROM transactions
+        WHERE broker = 'Kuvera'
+        GROUP BY symbol
+      `);
+
+      let updatedCount = 0;
+      while (hStmt.step()) {
+        const h = hStmt.getAsObject() as any;
+        if (h.net_qty > 0) {
+          const avgPrice = h.buy_qty > 0 ? h.total_cost / h.buy_qty : 0;
+          db.run(
+            `INSERT INTO holdings (broker, category, symbol, name, currency, quantity, avg_price, market_price)
+             VALUES ('Kuvera', 'MUTUAL_FUND', ?, ?, ?, ?, ?, ?)`,
+            [h.symbol, h.name, h.currency || 'INR', h.net_qty, avgPrice, avgPrice]
+          );
+          updatedCount++;
+        }
+      }
+      hStmt.free();
+
+      db.run('COMMIT');
+
+      onComplete({
+        broker: 'Kuvera',
+        importType: 'TRADEBOOK',
+        newTransactionsAdded: newTxns,
+        duplicatesSkipped: duplicates,
+        holdingsUpdated: updatedCount,
+        errors,
+      });
+      return;
+    }
+
     // Standard CSV fallback (Generic / Other Brokers)
     const delimiter = text.includes(';') ? ';' : ',';
     const rows = parseCsvLines(text, delimiter);
@@ -210,8 +298,7 @@ export async function importBrokerCsv(
       if (h.net_qty > 0) {
         const avgPrice = h.buy_qty > 0 ? h.total_cost / h.buy_qty : 0;
         db.run(
-          `INSERT INTO holdings (broker, category, symbol, name, currency, quantity, avg_price, market_price)
-           VALUES (?, 'EQUITY', ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO holdings (broker, 'EQUITY', ?, ?, ?, ?, ?, ?)`,
           [broker, h.symbol, h.name, h.currency || 'INR', h.net_qty, avgPrice, avgPrice]
         );
         updatedCount++;

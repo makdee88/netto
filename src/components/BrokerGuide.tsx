@@ -53,6 +53,17 @@ const BROKER_INSTRUCTIONS: Record<
     ],
     notes: 'Supports both multi-tab Excel workbooks (.xlsx) and standard Tradebook CSVs.',
   },
+  Kuvera: {
+    title: 'Kuvera (India - Mutual Funds)',
+    format: 'Transactions CSV',
+    currency: 'INR',
+    steps: [
+      'Log in to Kuvera and go to Profile -> Reports -> Transaction Report.',
+      'Select your date range and click Download CSV.',
+      'Upload the exported CSV file.',
+    ],
+    notes: 'Extracts fund name, folio number, order type (buy/sell), units, and execution NAV.',
+  },
   Groww: {
     title: 'Groww (India)',
     format: 'CSV / Excel (.xlsx)',
