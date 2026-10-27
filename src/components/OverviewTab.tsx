@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   TrendingUp,
   PieChart,
@@ -52,9 +52,9 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
   const [selectedTx, setSelectedTx] = useState<TransactionRow | null>(null);
 
-  const properties: PropertyRow[] = getProperties(db);
-  const liabilities: LiabilityRow[] = getLiabilities(db);
-  const allTransactions: TransactionRow[] = getAllTransactions(db);
+  const properties: PropertyRow[] = useMemo(() => getProperties(db), [db]);
+  const liabilities: LiabilityRow[] = useMemo(() => getLiabilities(db), [db]);
+  const allTransactions: TransactionRow[] = useMemo(() => getAllTransactions(db), [db]);
 
   const formatVal = (amount: number, currency: string = baseCurrency) => {
     if (isMasked) return '••••••';
@@ -66,41 +66,103 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
     return inSek / (fxRates[baseCurrency] || 1);
   };
 
-  const holdingsWithValues = holdings.map((h) => {
-    const isFD = h.category === 'FIXED_DEPOSIT';
-    const effectiveMarketPrice = h.market_price > 0 ? h.market_price : h.avg_price;
-    const nativeVal = isFD ? calculateFDCurrentValue(h) : h.quantity * effectiveMarketPrice;
-    const costVal = isFD ? h.principal : h.quantity * h.avg_price;
-    const baseVal = convertToBase(nativeVal, h.currency);
-    const baseCost = convertToBase(costVal, h.currency);
-    const gain = baseVal - baseCost;
-    return {
-      ...h,
-      effectiveMarketPrice,
-      nativeVal,
-      baseVal,
-      gain,
-      gainPct: baseCost > 0 ? (gain / baseCost) * 100 : 0,
-    };
-  });
+  const holdingsWithValues = useMemo(() => {
+    return holdings.map((h) => {
+      const isFD = h.category === 'FIXED_DEPOSIT';
+      const effectiveMarketPrice = h.market_price > 0 ? h.market_price : h.avg_price;
+      const nativeVal = isFD
+        ? calculateFDCurrentValue(h)
+        : h.category === 'PENSION'
+        ? (h.market_price > 0 ? h.market_price : h.principal || 0)
+        : h.quantity * effectiveMarketPrice;
+      const costVal = isFD
+        ? h.principal
+        : h.category === 'PENSION'
+        ? (h.principal || h.market_price || 0)
+        : h.quantity * h.avg_price;
+      const baseVal = convertToBase(nativeVal, h.currency);
+      const baseCost = convertToBase(costVal, h.currency);
+      const gain = baseVal - baseCost;
+      return {
+        ...h,
+        effectiveMarketPrice,
+        nativeVal,
+        baseVal,
+        gain,
+        gainPct: baseCost > 0 ? (gain / baseCost) * 100 : 0,
+      };
+    });
+  }, [holdings, fxRates, baseCurrency]);
 
   const totalFinancialAssets = holdingsWithValues.reduce((sum, h) => sum + h.baseVal, 0);
-  const totalRealEstate = properties.reduce((sum, p) => sum + convertToBase(p.current_price, p.currency), 0);
+  const totalRealEstate = properties.reduce(
+    (sum, p) => sum + convertToBase(p.current_price, p.currency),
+    0
+  );
   const totalAssets = totalFinancialAssets + totalRealEstate;
-  const totalLiabilities = liabilities.reduce((sum, l) => sum + convertToBase(l.remaining_balance, l.currency), 0);
+  const totalLiabilities = liabilities.reduce(
+    (sum, l) => sum + convertToBase(l.remaining_balance, l.currency),
+    0
+  );
   const netWorth = totalAssets - totalLiabilities;
   const debtToAssetRatio = totalAssets > 0 ? (totalLiabilities / totalAssets) * 100 : 0;
 
-  const fullTimeline = getHistoricalPortfolioTimeline(db, holdings, properties, fxRates, baseCurrency, frequency);
+  // 1. 5-Way Segregated Gross Asset Breakdown
+  const assetBreakdown: Record<string, number> = {
+    'Individual Equities': holdingsWithValues
+      .filter((h) => h.category === 'EQUITY')
+      .reduce((s, h) => s + h.baseVal, 0),
+    'Funds & ETFs': holdingsWithValues
+      .filter((h) => h.category === 'MUTUAL_FUND')
+      .reduce((s, h) => s + h.baseVal, 0),
+    'Fixed Deposits & Savings': holdingsWithValues
+      .filter((h) => h.category === 'FIXED_DEPOSIT')
+      .reduce((s, h) => s + h.baseVal, 0),
+    'Real Estate': totalRealEstate,
+    'Pension & Retirement': holdingsWithValues
+      .filter((h) => h.category === 'PENSION')
+      .reduce((s, h) => s + h.baseVal, 0),
+  };
+
+  // 2. Broker / Institution Exposure Summary
+  const brokerBreakdown = useMemo(() => {
+    const summary: Record<string, number> = {};
+
+    holdingsWithValues.forEach((h) => {
+      const brokerKey = h.broker || 'Other';
+      summary[brokerKey] = (summary[brokerKey] || 0) + h.baseVal;
+    });
+
+    if (totalRealEstate > 0) {
+      summary['Real Estate'] = totalRealEstate;
+    }
+
+    return Object.entries(summary).sort((a, b) => b[1] - a[1]);
+  }, [holdingsWithValues, totalRealEstate]);
+
+  const fullTimeline = getHistoricalPortfolioTimeline(
+    db,
+    holdings,
+    properties,
+    fxRates,
+    baseCurrency,
+    frequency
+  );
 
   const filteredTimeline = (() => {
     if (range === 'ALL') return fullTimeline;
     const limit =
       range === '1Y'
-        ? frequency === 'YEARLY' ? 1 : 12
+        ? frequency === 'YEARLY'
+          ? 1
+          : 12
         : range === '3Y'
-        ? frequency === 'YEARLY' ? 3 : 36
-        : frequency === 'YEARLY' ? 5 : 60;
+        ? frequency === 'YEARLY'
+          ? 3
+          : 36
+        : frequency === 'YEARLY'
+        ? 5
+        : 60;
     return fullTimeline.slice(-limit);
   })();
 
@@ -163,53 +225,22 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
       ? filteredTimeline[hoverIdx]
       : filteredTimeline[filteredTimeline.length - 1] || null;
 
-// 1. Five-Way Segregated Gross Asset Breakdown
-  const assetBreakdown: Record<string, number> = {
-    'Individual Equities': holdingsWithValues
-      .filter((h) => h.category === 'EQUITY')
-      .reduce((s, h) => s + h.baseVal, 0),
-    'Funds & ETFs': holdingsWithValues
-      .filter((h) => h.category === 'MUTUAL_FUND')
-      .reduce((s, h) => s + h.baseVal, 0),
-    'Fixed Deposits & Savings': holdingsWithValues
-      .filter((h) => h.category === 'FIXED_DEPOSIT')
-      .reduce((s, h) => s + h.baseVal, 0),
-    'Real Estate': totalRealEstate,
-    'Pension & Retirement': holdingsWithValues
-      .filter((h) => h.category === 'PENSION')
-      .reduce((s, h) => s + h.baseVal, 0),
-  };
-
-  // 2. Broker / Institution-Wise Asset Sum
-  const brokerBreakdown = useMemo(() => {
-    const summary: Record<string, number> = {};
-
-    holdingsWithValues.forEach((h) => {
-      const brokerKey = h.broker || 'Other';
-      summary[brokerKey] = (summary[brokerKey] || 0) + h.baseVal;
-    });
-
-    properties.forEach((p) => {
-      const brokerKey = 'Real Estate';
-      summary[brokerKey] = (summary[brokerKey] || 0) + convertToBase(p.current_price, p.currency);
-    });
-
-    return Object.entries(summary).sort((a, b) => b[1] - a[1]);
-  }, [holdingsWithValues, properties, baseCurrency, fxRates]);
-
-  const sortedHoldings = [...holdingsWithValues].sort((a, b) => b.baseVal - a.baseVal);
+  const sortedHoldings = [...holdingsWithValues]
+    .filter((h) => h.category !== 'PENSION' && h.category !== 'FIXED_DEPOSIT')
+    .sort((a, b) => b.baseVal - a.baseVal);
 
   const currencyBreakdown: Record<string, number> = {};
   holdingsWithValues.forEach((h) => {
     currencyBreakdown[h.currency] = (currencyBreakdown[h.currency] || 0) + h.baseVal;
   });
   properties.forEach((p) => {
-    currencyBreakdown[p.currency] = (currencyBreakdown[p.currency] || 0) + convertToBase(p.current_price, p.currency);
+    currencyBreakdown[p.currency] =
+      (currencyBreakdown[p.currency] || 0) + convertToBase(p.current_price, p.currency);
   });
 
   return (
     <div className="space-y-6">
-      {/* Financial Health Summary Cards */}
+      {/* 1. Summary Cards */}
       <div className="grid md:grid-cols-4 gap-4">
         <div className={`border p-5 rounded-2xl shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
           <span className="text-[11px] uppercase tracking-wider opacity-60 font-semibold">Net Worth</span>
@@ -224,7 +255,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
           <div className="text-2xl font-extrabold mt-1 text-emerald-500 flex items-center gap-1">
             <ArrowUpRight className="w-5 h-5" /> {formatVal(totalAssets)}
           </div>
-          <span className="text-[10px] opacity-60">Equities, FDs &amp; Properties (Current Value)</span>
+          <span className="text-[10px] opacity-60">Equities, FDs, Real Estate &amp; Pension</span>
         </div>
 
         <div className={`border p-5 rounded-2xl shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
@@ -232,7 +263,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
           <div className="text-2xl font-extrabold mt-1 text-rose-500 flex items-center gap-1">
             <ArrowDownRight className="w-5 h-5" /> {formatVal(totalLiabilities)}
           </div>
-          <span className="text-[10px] opacity-60">Mortgages &amp; Loans</span>
+          <span className="text-[10px] opacity-60">Mortgages &amp; Outstanding Loans</span>
         </div>
 
         <div className={`border p-5 rounded-2xl shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
@@ -244,8 +275,9 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         </div>
       </div>
 
-      {/* Portfolio Growth Chart with Frequency Toggle */}
+      {/* 2. Growth Chart & 5-Way Segregated Asset Class Allocation */}
       <div className="grid md:grid-cols-3 gap-6">
+        {/* Left: Portfolio Growth Chart */}
         <div className={`md:col-span-2 border p-6 rounded-2xl space-y-4 shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
@@ -264,7 +296,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                   <button
                     key={mode}
                     onClick={() => setFrequency(mode)}
-                    className={`px-2.5 py-1 rounded-lg transition ${
+                    className={`px-2.5 py-1 rounded-lg transition cursor-pointer ${
                       frequency === mode ? 'bg-emerald-600 text-white shadow' : 'opacity-60 hover:opacity-100'
                     }`}
                   >
@@ -278,7 +310,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                   <button
                     key={tf}
                     onClick={() => setRange(tf)}
-                    className={`px-2 py-1 rounded-lg transition ${
+                    className={`px-2 py-1 rounded-lg transition cursor-pointer ${
                       range === tf ? 'bg-indigo-600 text-white shadow' : 'opacity-60 hover:opacity-100'
                     }`}
                   >
@@ -297,7 +329,9 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                   <b>{selectedTx.tx_type}</b>: {selectedTx.name} ({selectedTx.quantity} @ {selectedTx.price} {selectedTx.currency}) on {selectedTx.tx_date.slice(0, 10)}
                 </span>
               </div>
-              <button onClick={() => setSelectedTx(null)} className="text-[10px] underline font-bold">Close</button>
+              <button onClick={() => setSelectedTx(null)} className="text-[10px] underline font-bold cursor-pointer">
+                Close
+              </button>
             </div>
           ) : activePoint ? (
             <div className={`flex flex-wrap items-center justify-between gap-4 px-4 py-2.5 rounded-xl border text-xs ${isDark ? 'bg-slate-950/70 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
@@ -331,7 +365,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
           {filteredTimeline.length === 0 ? (
             <div className="h-48 flex flex-col items-center justify-center text-center opacity-60 text-xs space-y-2">
               <p>Import transaction CSVs to plot your investment timeline.</p>
-              <button onClick={onGoToManage} className="text-indigo-500 font-semibold hover:underline flex items-center gap-1">
+              <button onClick={onGoToManage} className="text-indigo-500 font-semibold hover:underline flex items-center gap-1 cursor-pointer">
                 <PlusCircle className="w-3.5 h-3.5" /> Import Transactions
               </button>
             </div>
@@ -460,7 +494,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
           )}
         </div>
 
-        {/* Asset Class Allocation */}
+        {/* Right: 5-Way Segregated Gross Asset Allocation */}
         <div className={`border p-6 rounded-2xl space-y-4 shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
           <div className="flex items-center gap-2">
             <PieChart className="w-5 h-5 text-emerald-500" />
@@ -473,8 +507,6 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
             ) : (
               Object.entries(assetBreakdown).map(([category, val]) => {
                 const pct = totalAssets > 0 ? (val / totalAssets) * 100 : 0;
-                
-                // Color mapping per segregated category
                 const colorClass = category.includes('Equities')
                   ? 'bg-blue-500'
                   : category.includes('Funds')
@@ -483,13 +515,15 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                   ? 'bg-emerald-500'
                   : category.includes('Real')
                   ? 'bg-amber-500'
-                  : 'bg-purple-500'; // Pension
+                  : 'bg-purple-500';
 
                 return (
                   <div key={category} className="space-y-1.5 text-xs">
                     <div className="flex justify-between font-medium">
                       <span>{category}</span>
-                      <span>{formatVal(val)} ({pct.toFixed(1)}%)</span>
+                      <span>
+                        {formatVal(val)} ({pct.toFixed(1)}%)
+                      </span>
                     </div>
                     <div className={`w-full h-2 rounded-full overflow-hidden ${isDark ? 'bg-slate-950' : 'bg-slate-100'}`}>
                       <div
@@ -503,8 +537,9 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
             )}
           </div>
         </div>
+      </div>
 
-      {/* Broker & Institution Exposure */}
+      {/* 3. Broker & Institution Exposure */}
       <div className={`border p-6 rounded-2xl space-y-4 shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -548,7 +583,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         </div>
       </div>
 
-      {/* Stock / Fund-Wise Concentration Breakdown */}
+      {/* 4. Stock / Fund Concentration (Top Holdings) */}
       <div className={`border p-6 rounded-2xl space-y-4 shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -588,7 +623,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         </div>
       </div>
 
-      {/* Additional Analytics Row: Currency Exposure (Left) & Upcoming FD Maturities (Right) */}
+      {/* 5. Additional Analytics Row: Currency Exposure (Left) & Upcoming FD Maturities (Right) */}
       <div className="grid md:grid-cols-2 gap-6">
         {/* Left: Multi-Currency Exposure */}
         <div className={`border p-6 rounded-2xl space-y-4 shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
@@ -628,7 +663,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
             {holdings.filter((h) => h.category === 'FIXED_DEPOSIT' && h.maturity_date).length > 3 && (
               <button
                 onClick={onGoToManage}
-                className="text-[11px] text-indigo-500 hover:underline font-semibold"
+                className="text-[11px] text-indigo-500 hover:underline font-semibold cursor-pointer"
               >
                 View all ({holdings.filter((h) => h.category === 'FIXED_DEPOSIT' && h.maturity_date).length})
               </button>
@@ -686,11 +721,11 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         </div>
       </div>
 
-      {/* Holdings Table */}
+      {/* 6. Consolidated Portfolio Holdings Table */}
       <div className={`border rounded-2xl overflow-hidden shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
         <div className={`p-4 border-b flex justify-between items-center ${isDark ? 'border-slate-800' : 'border-slate-200'}`}>
           <h3 className="font-bold text-sm">Consolidated Portfolio Holdings (Live Valuation)</h3>
-          <button onClick={onGoToManage} className="text-xs text-indigo-500 hover:underline font-semibold">
+          <button onClick={onGoToManage} className="text-xs text-indigo-500 hover:underline font-semibold cursor-pointer">
             + Add or Edit Holdings
           </button>
         </div>
@@ -716,6 +751,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
             ) : (
               holdingsWithValues.map((h) => {
                 const isFD = h.category === 'FIXED_DEPOSIT';
+                const isPension = h.category === 'PENSION';
                 return (
                   <tr key={h.id} className={isDark ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}>
                     <td className="p-4 font-semibold">{h.broker}</td>
@@ -730,18 +766,28 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                     <td className="p-4">
                       <span
                         className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
-                          isFD ? 'bg-emerald-500/15 text-emerald-500' : 'bg-indigo-500/15 text-indigo-500'
+                          isFD
+                            ? 'bg-emerald-500/15 text-emerald-500'
+                            : isPension
+                            ? 'bg-purple-500/15 text-purple-400'
+                            : h.category === 'MUTUAL_FUND'
+                            ? 'bg-sky-500/15 text-sky-400'
+                            : 'bg-indigo-500/15 text-indigo-500'
                         }`}
                       >
                         {h.category}
                       </span>
                     </td>
                     <td className="p-4 opacity-90">
-                      {isFD ? formatVal(h.principal, h.currency) : h.quantity.toLocaleString()}
+                      {isFD || isPension ? formatVal(h.principal || h.market_price, h.currency) : h.quantity.toLocaleString()}
                     </td>
                     <td className="p-4 opacity-90">
                       {isFD ? (
                         `${h.interest_rate}%`
+                      ) : isPension ? (
+                        <span className="font-semibold text-purple-400">
+                          {isMasked ? '••••' : `${formatVal(h.effectiveMarketPrice, h.currency)}`}
+                        </span>
                       ) : (
                         <div>
                           <span className="font-semibold">
@@ -767,14 +813,14 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         </table>
       </div>
 
-      {/* Properties Table */}
+      {/* 7. Real Estate Properties Table */}
       <div className={`border rounded-2xl overflow-hidden shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
         <div className={`p-4 border-b flex justify-between items-center ${isDark ? 'border-slate-800' : 'border-slate-200'}`}>
           <div className="flex items-center gap-2">
             <Building2 className="w-4 h-4 text-amber-500" />
             <h3 className="font-bold text-sm">Real Estate &amp; Properties</h3>
           </div>
-          <button onClick={onGoToManage} className="text-xs text-indigo-500 hover:underline font-semibold">
+          <button onClick={onGoToManage} className="text-xs text-indigo-500 hover:underline font-semibold cursor-pointer">
             + Add Property
           </button>
         </div>
@@ -822,14 +868,14 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         </table>
       </div>
 
-      {/* Liabilities Table */}
+      {/* 8. Liabilities & Loans Table */}
       <div className={`border rounded-2xl overflow-hidden shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
         <div className={`p-4 border-b flex justify-between items-center ${isDark ? 'border-slate-800' : 'border-slate-200'}`}>
           <div className="flex items-center gap-2">
             <CreditCard className="w-4 h-4 text-rose-500" />
             <h3 className="font-bold text-sm">Liabilities &amp; Outstanding Loans</h3>
           </div>
-          <button onClick={onGoToManage} className="text-xs text-indigo-500 hover:underline font-semibold">
+          <button onClick={onGoToManage} className="text-xs text-indigo-500 hover:underline font-semibold cursor-pointer">
             + Add Liability
           </button>
         </div>
