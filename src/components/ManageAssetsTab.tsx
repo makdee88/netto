@@ -58,6 +58,12 @@ interface ManageAssetsTabProps {
     remaining_balance: number;
     interest_rate: number;
   }) => void;
+  onAddPension: (p: {
+    broker: string;
+    name: string;
+    currency: CurrencyCode;
+    valuation: number;
+  }) => void;
   onUpdatePropertyValuation?: (id: number, currentPrice: number) => void;
   onUpdateLiabilityBalance?: (id: number, remainingBalance: number) => void;
   onUpdateHoldingValuation?: (id: number, marketPrice: number) => void;
