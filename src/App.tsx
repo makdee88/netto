@@ -34,6 +34,7 @@ import { ManageAssetsTab } from './components/ManageAssetsTab';
 import { PrivacyArchitectureModal } from './components/PrivacyArchitectureModal';
 import { ChangePassphraseModal } from './components/ChangePassphraseModal';
 import { CsvImportSummaryModal } from './components/CsvImportSummaryModal';
+import { HowToUseModal } from './components/HowToUseModal';
 import { useVaultManager, getVaultListKey } from './hooks/useVaultManager';
 
 import {
@@ -51,6 +52,7 @@ import {
   FileDown,
   Lock,
   CheckCircle,
+  BookOpen,
 } from 'lucide-react';
 
 const THEME_KEY = 'netto_color_theme';
@@ -93,6 +95,7 @@ export default function App() {
   const [passphrase, setPassphrase] = useState<string>('');
   const [showSecurityModal, setShowSecurityModal] = useState<boolean>(false);
   const [showPassModal, setShowPassModal] = useState<boolean>(false);
+  const [showHowToUseModal, setShowHowToUseModal] = useState<boolean>(false);
   const [csvSummary, setCsvSummary] = useState<CsvImportResult | null>(null);
 
   const [holdings, setHoldings] = useState<HoldingRow[]>([]);
@@ -511,162 +514,206 @@ export default function App() {
   return (
     <div className={`min-h-screen ${isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
       {floatingBar}
+
+      {/* Primary Dashboard Header: Actions Left, Info/Guide/Settings Right */}
       <header
-        className={`max-w-7xl mx-auto px-6 py-4 flex flex-wrap justify-between items-center gap-4 border-b ${
+        className={`max-w-7xl mx-auto px-6 py-4 flex flex-wrap items-center justify-between gap-4 border-b ${
           isDark ? 'border-slate-800 bg-slate-900/80' : 'border-slate-200 bg-white shadow-sm'
         }`}
       >
-        <div className="flex items-center gap-3">
-          <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
-            <ShieldCheck className="w-6 h-6" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1
-                onClick={() => handleStepChange('LANDING')}
-                className="text-xl font-bold tracking-tight cursor-pointer hover:text-indigo-400 transition"
-                title="Go to Home"
-              >
-                netto
-              </h1>
-              <span className="text-[10px] bg-emerald-500/20 text-emerald-500 px-2 py-0.5 rounded-full font-medium">
-                {activeVaultName} • AES-256 Unlocked
-              </span>
+        {/* ========================================================= */}
+        {/* LEFT SIDE: Brand, Navigation Tabs, and Ledger Actions     */}
+        {/* ========================================================= */}
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Logo & Vault Identity */}
+          <div className="flex items-center gap-2.5 pr-2">
+            <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
+              <ShieldCheck className="w-5 h-5" />
             </div>
-            <p className="text-xs opacity-75">{statusMsg}</p>
+            <div>
+              <div className="flex items-center gap-2">
+                <h1
+                  onClick={() => handleStepChange('LANDING')}
+                  className="text-lg font-bold tracking-tight cursor-pointer hover:text-indigo-400 transition"
+                  title="Go to Landing Page"
+                >
+                  netto
+                </h1>
+                <span className="text-[10px] bg-emerald-500/20 text-emerald-500 px-2 py-0.5 rounded-full font-medium">
+                  {activeVaultName}
+                </span>
+              </div>
+              <p className="text-[11px] opacity-70 leading-none">{statusMsg}</p>
+            </div>
+          </div>
+
+          {/* Navigation View Switcher */}
+          <div className="flex gap-1 bg-slate-950/20 p-1 rounded-xl text-xs font-semibold border border-slate-800/40">
+            <button
+              onClick={() => handleTabChange('OVERVIEW')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition cursor-pointer ${
+                subTab === 'OVERVIEW' ? 'bg-indigo-600 text-white shadow' : 'opacity-70 hover:opacity-100'
+              }`}
+            >
+              <LayoutDashboard className="w-3.5 h-3.5" /> Overview
+            </button>
+            <button
+              onClick={() => handleTabChange('MANAGE')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition cursor-pointer ${
+                subTab === 'MANAGE' ? 'bg-indigo-600 text-white shadow' : 'opacity-70 hover:opacity-100'
+              }`}
+            >
+              <PlusCircle className="w-3.5 h-3.5" /> Manage Assets
+            </button>
+          </div>
+
+          {/* Action Buttons: Quotes, Currency, Drive Sync, Local Backup */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={async () => {
+                const symbols = holdings
+                  .filter((h) => h.category === 'EQUITY')
+                  .map((h) => h.symbol);
+                const vaultRes = db.exec("SELECT value FROM app_config WHERE key = 'vault_id'");
+                const vaultId = (vaultRes[0]?.values[0]?.[0] as string) || 'anon';
+                setStatusMsg('Fetching quotes...');
+                try {
+                  const res = await fetch(
+                    `/api/quotes?symbols=${encodeURIComponent(symbols.join(','))}`,
+                    {
+                      headers: {
+                        'X-Vault-Id': vaultId,
+                        'X-Base-Currency': baseCurrency,
+                      },
+                    }
+                  );
+                  if (!res.ok) throw new Error();
+                  const data = await res.json();
+                  if (data.fxRates) setFxRates(data.fxRates);
+                  if (data.quotes) {
+                    db.run('BEGIN TRANSACTION');
+                    for (const [sym, price] of Object.entries(data.quotes)) {
+                      if (Number(price) > 0) {
+                        db.run(
+                          'UPDATE holdings SET market_price = ?, updated_at = CURRENT_TIMESTAMP WHERE symbol = ?',
+                          [Number(price), sym]
+                        );
+                      }
+                    }
+                    db.run('COMMIT');
+                    await persistEncryptedVault(db);
+                  }
+                  setStatusMsg('Live market prices updated!');
+                } catch {
+                  setStatusMsg('Using cached prices');
+                }
+              }}
+              className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-xl text-xs font-semibold cursor-pointer shadow-sm transition"
+              title="Fetch latest stock quotes & exchange rates"
+            >
+              <RefreshCw className="w-3.5 h-3.5" /> Prices
+            </button>
+
+            <select
+              value={baseCurrency}
+              onChange={(e) => setBaseCurrency(e.target.value as CurrencyCode)}
+              className="border border-slate-700/60 rounded-xl px-2.5 py-1.5 text-xs font-semibold bg-transparent cursor-pointer"
+              title="Display currency"
+            >
+              <option value="SEK">SEK (kr)</option>
+              <option value="INR">INR (₹)</option>
+              <option value="USD">USD ($)</option>
+              <option value="EUR">EUR (€)</option>
+            </select>
+
+            <button
+              onClick={() =>
+                withGoogleAuth(async (token) => {
+                  setStatusMsg(`Syncing to Google Drive AppData...`);
+                  const enc = await encryptSqliteBytes(db.export(), passphrase);
+                  const msg = await syncToGoogleDrive(token, enc, activeVaultName);
+                  setStatusMsg(msg);
+                })
+              }
+              className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-xl text-xs font-semibold shadow cursor-pointer transition"
+              title="Save encrypted snapshot to Google Drive AppData"
+            >
+              <CloudUpload className="w-3.5 h-3.5" /> Save to Drive
+            </button>
+
+            <button
+              onClick={async () => {
+                if (!db) return;
+                const enc = await encryptSqliteBytes(db.export(), passphrase);
+                downloadEncryptedBlob(enc, activeVaultName);
+                setStatusMsg('Encrypted backup exported!');
+              }}
+              className="flex items-center gap-1.5 border border-slate-700/70 hover:bg-slate-800 text-slate-200 px-3 py-1.5 rounded-xl text-xs font-semibold cursor-pointer transition"
+              title="Download encrypted .sqlite.enc backup to local disk"
+            >
+              <FileDown className="w-3.5 h-3.5 text-indigo-400" /> Backup File
+            </button>
           </div>
         </div>
 
-        <div className="flex gap-1 bg-slate-950/20 p-1 rounded-xl text-xs font-semibold">
-          <button
-            onClick={() => handleTabChange('OVERVIEW')}
-            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg transition ${
-              subTab === 'OVERVIEW' ? 'bg-indigo-600 text-white shadow' : 'opacity-70 hover:opacity-100'
-            }`}
-          >
-            <LayoutDashboard className="w-3.5 h-3.5" /> Overview
-          </button>
-          <button
-            onClick={() => handleTabChange('MANAGE')}
-            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg transition ${
-              subTab === 'MANAGE' ? 'bg-indigo-600 text-white shadow' : 'opacity-70 hover:opacity-100'
-            }`}
-          >
-            <PlusCircle className="w-3.5 h-3.5" /> Manage Assets
-          </button>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
+        {/* ========================================================= */}
+        {/* RIGHT SIDE: Privacy, Guide, Modals & Security Exit       */}
+        {/* ========================================================= */}
+        <div className="flex items-center gap-2">
+          {/* Privacy Screening Toggle */}
           <button
             onClick={() => setIsMasked(!isMasked)}
-            className={`p-2 rounded-lg border transition flex items-center gap-1.5 text-xs font-semibold ${
+            className={`px-3 py-1.5 rounded-xl border transition flex items-center gap-1.5 text-xs font-semibold cursor-pointer ${
               isMasked
                 ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
-                : 'bg-indigo-600 border-indigo-500 text-white'
+                : 'bg-indigo-600 border-indigo-500 text-white shadow-sm'
             }`}
+            title="Toggle Privacy Mask (hides values for screen sharing/public)"
           >
-            {isMasked ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            {isMasked ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
             <span>{isMasked ? 'Privacy: ON' : 'Privacy: OFF'}</span>
           </button>
-          <button onClick={toggleTheme} className="p-2 rounded-lg border">
-            {isDark ? <Sun className="w-4 h-4 text-yellow-400" /> : <Moon className="w-4 h-4 text-slate-700" />}
+
+          {/* How to Use Guide */}
+          <button
+            onClick={() => setShowHowToUseModal(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border border-indigo-500/30 bg-indigo-500/10 text-indigo-300 hover:bg-indigo-500/20 transition cursor-pointer"
+            title="Read feature guides and usage instructions"
+          >
+            <BookOpen className="w-3.5 h-3.5" /> How to Use
           </button>
+
+          {/* Architecture / Zero-Knowledge Info */}
           <button
             onClick={() => setShowSecurityModal(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border border-slate-700/60 opacity-80 hover:opacity-100 hover:bg-slate-800/40 transition cursor-pointer"
+            title="Zero-Knowledge Architecture details"
           >
-            <Info className="w-3.5 h-3.5 text-indigo-400" /> Privacy
+            <Info className="w-3.5 h-3.5 text-indigo-400" /> Info
           </button>
+
+          {/* Change Passphrase Modal */}
           <button
             onClick={() => setShowPassModal(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border border-slate-700/60 opacity-80 hover:opacity-100 hover:bg-slate-800/40 transition cursor-pointer"
+            title="Update your vault passphrase"
           >
             <KeyRound className="w-3.5 h-3.5 text-indigo-400" /> Passphrase
           </button>
-          <select
-            value={baseCurrency}
-            onChange={(e) => setBaseCurrency(e.target.value as CurrencyCode)}
-            className="border rounded-lg px-3 py-1.5 text-xs font-semibold bg-transparent"
-          >
-            <option value="SEK">SEK (kr)</option>
-            <option value="INR">INR (₹)</option>
-            <option value="USD">USD ($)</option>
-            <option value="EUR">EUR (€)</option>
-          </select>
+
+          {/* Theme Switcher */}
           <button
-            onClick={async () => {
-              const symbols = holdings
-                .filter((h) => h.category === 'EQUITY')
-                .map((h) => h.symbol);
-              const vaultRes = db.exec("SELECT value FROM app_config WHERE key = 'vault_id'");
-              const vaultId = (vaultRes[0]?.values[0]?.[0] as string) || 'anon';
-              setStatusMsg('Fetching quotes...');
-              try {
-                const res = await fetch(
-                  `/api/quotes?symbols=${encodeURIComponent(symbols.join(','))}`,
-                  {
-                    headers: {
-                      'X-Vault-Id': vaultId,
-                      'X-Base-Currency': baseCurrency,
-                    },
-                  }
-                );
-                if (!res.ok) throw new Error();
-                const data = await res.json();
-                if (data.fxRates) setFxRates(data.fxRates);
-                if (data.quotes) {
-                  db.run('BEGIN TRANSACTION');
-                  for (const [sym, price] of Object.entries(data.quotes)) {
-                    if (Number(price) > 0) {
-                      db.run(
-                        'UPDATE holdings SET market_price = ?, updated_at = CURRENT_TIMESTAMP WHERE symbol = ?',
-                        [Number(price), sym]
-                      );
-                    }
-                  }
-                  db.run('COMMIT');
-                  await persistEncryptedVault(db);
-                }
-                setStatusMsg('Live market prices updated!');
-              } catch {
-                setStatusMsg('Using cached prices');
-              }
-            }}
-            className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg text-xs font-semibold"
+            onClick={toggleTheme}
+            className="p-2 rounded-xl border border-slate-700/60 opacity-80 hover:opacity-100 hover:bg-slate-800/40 transition cursor-pointer"
+            title="Toggle Light/Dark Theme"
           >
-            <RefreshCw className="w-3.5 h-3.5" /> Prices
+            {isDark ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-slate-700" />}
           </button>
 
-          <button
-            onClick={async () => {
-              if (!db) return;
-              const enc = await encryptSqliteBytes(db.export(), passphrase);
-              downloadEncryptedBlob(enc, activeVaultName);
-              setStatusMsg('Encrypted backup exported!');
-            }}
-            className="flex items-center gap-1.5 border border-slate-700 hover:bg-slate-800 text-slate-200 px-3 py-1.5 rounded-lg text-xs font-semibold"
-            title="Download encrypted .sqlite.enc file directly"
-          >
-            <FileDown className="w-3.5 h-3.5 text-indigo-400" /> Backup File
-          </button>
-
-          <button
-            onClick={() =>
-              withGoogleAuth(async (token) => {
-                setStatusMsg(`Syncing to Google Drive AppData...`);
-                const enc = await encryptSqliteBytes(db.export(), passphrase);
-                const msg = await syncToGoogleDrive(token, enc, activeVaultName);
-                setStatusMsg(msg);
-              })
-            }
-            className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-lg text-xs font-semibold shadow"
-          >
-            <CloudUpload className="w-3.5 h-3.5" /> Save to Drive
-          </button>
-
+          {/* Immediate Vault Lock */}
           <button
             onClick={handleExplicitLock}
-            className="p-1.5 rounded-lg border border-rose-500/30 text-rose-400 hover:bg-rose-500/10 transition"
+            className="p-2 rounded-xl border border-rose-500/30 text-rose-400 hover:bg-rose-500/10 transition cursor-pointer ml-1"
             title="Lock Vault Now"
           >
             <Lock className="w-4 h-4" />
@@ -674,7 +721,7 @@ export default function App() {
         </div>
       </header>
 
-      {/* Confirmation Pill Banner */}
+      {/* Confirmation Banner */}
       {csvSummary && (
         <div className="max-w-7xl mx-auto px-6 pt-4">
           <div className="flex items-center justify-between p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs">
@@ -686,7 +733,7 @@ export default function App() {
             </div>
             <button
               onClick={() => setCsvSummary(null)}
-              className="text-emerald-400 hover:underline font-bold text-[11px] ml-4"
+              className="text-emerald-400 hover:underline font-bold text-[11px] ml-4 cursor-pointer"
             >
               Dismiss
             </button>
@@ -694,6 +741,7 @@ export default function App() {
         </div>
       )}
 
+      {/* Main Tab Content */}
       <main className="max-w-7xl mx-auto p-6 pb-20">
         {subTab === 'OVERVIEW' ? (
           <OverviewTab
@@ -828,9 +876,19 @@ export default function App() {
         />
       )}
 
+      {/* How To Use Guide Modal */}
+      {showHowToUseModal && (
+        <HowToUseModal
+          isOpen={showHowToUseModal}
+          onClose={() => setShowHowToUseModal(false)}
+          theme={theme}
+        />
+      )}
+
       {showSecurityModal && (
         <PrivacyArchitectureModal onClose={() => setShowSecurityModal(false)} />
       )}
+
       {showPassModal && (
         <ChangePassphraseModal
           onClose={() => setShowPassModal(false)}
