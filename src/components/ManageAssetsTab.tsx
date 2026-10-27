@@ -78,6 +78,7 @@ interface ManageAssetsTabProps {
     currency: CurrencyCode;
     valuation: number;
   }) => void;
+  onSaveVault?: () => Promise<void> | void;
   onUpdatePropertyValuation?: (id: number, currentPrice: number) => void;
   onUpdateLiabilityBalance?: (id: number, remainingBalance: number) => void;
   onUpdateHoldingValuation?: (id: number, marketPrice: number) => void;
@@ -1478,7 +1479,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
 
       {/* Sector Breakdown Modal */}
       {editingSectorHolding && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in">
           <div
             className={`w-full max-w-xl rounded-3xl p-6 shadow-2xl border space-y-4 max-h-[90vh] flex flex-col ${
               isDark ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
@@ -1494,6 +1495,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                 </p>
               </div>
               <button
+                type="button"
                 onClick={() => setEditingSectorHolding(null)}
                 className="opacity-70 hover:opacity-100 p-1 cursor-pointer"
               >
@@ -1501,6 +1503,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
               </button>
             </div>
 
+            {/* Quick 100% Single-Sector Buttons */}
             <div>
               <span className="text-[10px] uppercase font-bold opacity-60 block mb-1.5">
                 Quick 100% Allocation (Single Stock):
@@ -1523,6 +1526,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
               </div>
             </div>
 
+            {/* Sector Percentages Scrollable List */}
             <div className="flex-1 overflow-y-auto space-y-2 pr-1 max-h-72">
               {GICS_SECTORS.map((sector) => (
                 <div
@@ -1538,7 +1542,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                       min="0"
                       max="100"
                       step="0.1"
-                      value={sectorWeights[sector] || ''}
+                      value={sectorWeights[sector] ?? 0}
                       onChange={(e) => {
                         const val = parseFloat(e.target.value) || 0;
                         setSectorWeights((prev) => ({
@@ -1555,6 +1559,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
               ))}
             </div>
 
+            {/* Progress Bar & Submission */}
             <div className="pt-3 border-t border-slate-800/20 space-y-3">
               <div className="flex items-center justify-between text-xs font-mono font-bold">
                 <span>Total Allocated:</span>

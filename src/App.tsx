@@ -762,6 +762,11 @@ export default function App() {
             holdings={holdings}
             theme={theme}
             onBackToOverview={() => handleTabChange('OVERVIEW')}
+            onSaveVault={async () => {
+              if (db) {
+                await persistEncryptedVault(db);
+              }
+            }}
             onCsvImport={(file, broker) => {
               return importBrokerCsv(file, broker, db, async (summary) => {
                 await persistEncryptedVault(db);
