@@ -163,15 +163,39 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
       ? filteredTimeline[hoverIdx]
       : filteredTimeline[filteredTimeline.length - 1] || null;
 
+// 1. Five-Way Segregated Gross Asset Breakdown
   const assetBreakdown: Record<string, number> = {
-    'Equities & Mutual Funds': holdingsWithValues
-      .filter((h) => h.category !== 'FIXED_DEPOSIT')
+    'Individual Equities': holdingsWithValues
+      .filter((h) => h.category === 'EQUITY')
+      .reduce((s, h) => s + h.baseVal, 0),
+    'Funds & ETFs': holdingsWithValues
+      .filter((h) => h.category === 'MUTUAL_FUND')
       .reduce((s, h) => s + h.baseVal, 0),
     'Fixed Deposits & Savings': holdingsWithValues
       .filter((h) => h.category === 'FIXED_DEPOSIT')
       .reduce((s, h) => s + h.baseVal, 0),
     'Real Estate': totalRealEstate,
+    'Pension & Retirement': holdingsWithValues
+      .filter((h) => h.category === 'PENSION')
+      .reduce((s, h) => s + h.baseVal, 0),
   };
+
+  // 2. Broker / Institution-Wise Asset Sum
+  const brokerBreakdown = useMemo(() => {
+    const summary: Record<string, number> = {};
+
+    holdingsWithValues.forEach((h) => {
+      const brokerKey = h.broker || 'Other';
+      summary[brokerKey] = (summary[brokerKey] || 0) + h.baseVal;
+    });
+
+    properties.forEach((p) => {
+      const brokerKey = 'Real Estate';
+      summary[brokerKey] = (summary[brokerKey] || 0) + convertToBase(p.current_price, p.currency);
+    });
+
+    return Object.entries(summary).sort((a, b) => b[1] - a[1]);
+  }, [holdingsWithValues, properties, baseCurrency, fxRates]);
 
   const sortedHoldings = [...holdingsWithValues].sort((a, b) => b.baseVal - a.baseVal);
 
@@ -443,28 +467,34 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
             <h2 className="font-bold text-base">Gross Asset Allocation</h2>
           </div>
 
-          <div className="space-y-4 pt-2">
+          <div className="space-y-3 pt-1">
             {totalAssets === 0 ? (
               <p className="text-xs opacity-60 text-center py-12">No assets recorded yet.</p>
             ) : (
               Object.entries(assetBreakdown).map(([category, val]) => {
                 const pct = totalAssets > 0 ? (val / totalAssets) * 100 : 0;
+                
+                // Color mapping per segregated category
+                const colorClass = category.includes('Equities')
+                  ? 'bg-blue-500'
+                  : category.includes('Funds')
+                  ? 'bg-indigo-500'
+                  : category.includes('Fixed')
+                  ? 'bg-emerald-500'
+                  : category.includes('Real')
+                  ? 'bg-amber-500'
+                  : 'bg-purple-500'; // Pension
+
                 return (
                   <div key={category} className="space-y-1.5 text-xs">
                     <div className="flex justify-between font-medium">
                       <span>{category}</span>
                       <span>{formatVal(val)} ({pct.toFixed(1)}%)</span>
                     </div>
-                    <div className={`w-full h-2.5 rounded-full overflow-hidden ${isDark ? 'bg-slate-950' : 'bg-slate-100'}`}>
+                    <div className={`w-full h-2 rounded-full overflow-hidden ${isDark ? 'bg-slate-950' : 'bg-slate-100'}`}>
                       <div
                         style={{ width: `${pct}%` }}
-                        className={`h-full rounded-full ${
-                          category.includes('Real')
-                            ? 'bg-amber-500'
-                            : category.includes('Fixed')
-                            ? 'bg-emerald-500'
-                            : 'bg-indigo-500'
-                        }`}
+                        className={`h-full rounded-full ${colorClass} transition-all duration-500`}
                       />
                     </div>
                   </div>
@@ -472,6 +502,49 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
               })
             )}
           </div>
+        </div>
+
+      {/* Broker & Institution Exposure */}
+      <div className={`border p-6 rounded-2xl space-y-4 shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Building2 className="w-5 h-5 text-indigo-500" />
+            <h2 className="font-bold text-base">Broker &amp; Institution Exposure</h2>
+          </div>
+          <span className="text-xs opacity-60 font-mono">{brokerBreakdown.length} Institutions</span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
+          {brokerBreakdown.map(([broker, val]) => {
+            const pct = totalAssets > 0 ? (val / totalAssets) * 100 : 0;
+            return (
+              <div
+                key={broker}
+                className={`p-3.5 rounded-xl border flex flex-col justify-between ${
+                  isDark ? 'bg-slate-950/40 border-slate-800' : 'bg-slate-50 border-slate-200'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <span className="font-bold text-xs truncate" title={broker}>
+                    {broker}
+                  </span>
+                  <span className="text-[10px] font-mono opacity-60">{pct.toFixed(1)}%</span>
+                </div>
+                <div className="font-mono font-extrabold text-sm text-indigo-400">
+                  {formatVal(val)}
+                </div>
+                <div className={`w-full h-1.5 rounded-full mt-2 overflow-hidden ${isDark ? 'bg-slate-900' : 'bg-slate-200'}`}>
+                  <div style={{ width: `${pct}%` }} className="h-full bg-indigo-500 rounded-full" />
+                </div>
+              </div>
+            );
+          })}
+
+          {brokerBreakdown.length === 0 && (
+            <div className="col-span-full text-center py-6 text-xs opacity-60">
+              No institution data available.
+            </div>
+          )}
         </div>
       </div>
 
