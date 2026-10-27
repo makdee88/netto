@@ -20,12 +20,33 @@ function normalizeNumber(str: string): number {
   return isNaN(num) ? 0 : num;
 }
 
+const MONTH_MAP: Record<string, string> = {
+  jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06',
+  jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12',
+};
+
+/**
+ * Parses varied bank date formats (e.g. "01 Jun 2028", "28/12/2023", "2025-03-27")
+ * and converts them to standardized ISO format YYYY-MM-DD.
+ */
 function normalizeDate(str: string): string {
   if (!str) return '';
   const clean = str.trim();
-  // If in YYYY-MM-DD
+
+  // 1. Standard ISO: YYYY-MM-DD
   if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) return clean;
-  // If DD/MM/YYYY or DD-MM-YYYY
+
+  // 2. Text month format: "01 Jun 2028" or "1-Jun-2028"
+  const textMonthMatch = clean.match(/^(\d{1,2})[\s\-\/]([A-Za-z]{3,9})[\s\-\/](\d{4})$/);
+  if (textMonthMatch) {
+    const day = textMonthMatch[1].padStart(2, '0');
+    const monthKey = textMonthMatch[2].slice(0, 3).toLowerCase();
+    const month = MONTH_MAP[monthKey];
+    const year = textMonthMatch[3];
+    if (month) return `${year}-${month}-${day}`;
+  }
+
+  // 3. Delimited numeric: DD/MM/YYYY or YYYY/MM/DD
   const parts = clean.split(/[/.-]/);
   if (parts.length === 3) {
     if (parts[0].length === 4) {
@@ -35,14 +56,16 @@ function normalizeDate(str: string): string {
       return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
     }
   }
+
+  // 4. Fallback to JS Date parser
+  const parsed = new Date(clean);
+  if (!isNaN(parsed.getTime())) {
+    return parsed.toISOString().slice(0, 10);
+  }
+
   return clean;
 }
 
-/**
- * Parses raw text from clipboard (tab-separated from Excel or comma/semicolon-separated).
- * Standard expected column order:
- * Bank | Deposit Name | Principal | Rate % | Currency | Start Date | Maturity Date | Compounding
- */
 export function parsePastedFdRows(rawText: string): ParsedFdItem[] {
   const lines = rawText
     .split(/\r?\n/)
@@ -60,7 +83,6 @@ export function parsePastedFdRows(rawText: string): ParsedFdItem[] {
       ? line.split(';')
       : line.split(',');
 
-    // Skip potential header rows
     if (i === 0 && /(bank|institution|principal|amount|rate|deposit)/i.test(line)) {
       continue;
     }
@@ -71,42 +93,45 @@ export function parsePastedFdRows(rawText: string): ParsedFdItem[] {
     const name = cols[1]?.trim() || 'Fixed Deposit';
     const principal = normalizeNumber(cols[2]);
     const interestRate = cols[3] ? normalizeNumber(cols[3]) : 3.5;
-    
-    // Check if col 4 is currency (e.g. SEK, INR, USD, EUR) or if it looks like a date
+
     let currency: CurrencyCode = 'SEK';
-    let date1 = '';
-    let date2 = '';
+    let rawDate1 = '';
+    let rawDate2 = '';
 
     const col4 = cols[4]?.trim().toUpperCase();
     if (col4 && ['SEK', 'INR', 'USD', 'EUR', 'GBP'].includes(col4)) {
       currency = col4 as CurrencyCode;
-      date1 = normalizeDate(cols[5]?.trim() || '');
-      date2 = normalizeDate(cols[6]?.trim() || '');
+      rawDate1 = cols[5]?.trim() || '';
+      rawDate2 = cols[6]?.trim() || '';
     } else {
-      // Currency might have been omitted or placed later
-      date1 = normalizeDate(cols[4]?.trim() || '');
-      date2 = normalizeDate(cols[5]?.trim() || '');
+      rawDate1 = cols[4]?.trim() || '';
+      rawDate2 = cols[5]?.trim() || '';
     }
+
+    const isoDate1 = normalizeDate(rawDate1);
+    const isoDate2 = normalizeDate(rawDate2);
 
     let startDate = today;
     let maturityDate = '';
 
-    // Smart date assignment: if two dates are present, the earlier one is start date
-    if (date1 && date2) {
-      if (date1 <= date2) {
-        startDate = date1;
-        maturityDate = date2;
+    // True chronological comparison using timestamps
+    const time1 = isoDate1 ? new Date(isoDate1).getTime() : NaN;
+    const time2 = isoDate2 ? new Date(isoDate2).getTime() : NaN;
+
+    if (!isNaN(time1) && !isNaN(time2)) {
+      if (time1 <= time2) {
+        startDate = isoDate1;
+        maturityDate = isoDate2;
       } else {
-        startDate = date2;
-        maturityDate = date1;
+        startDate = isoDate2;
+        maturityDate = isoDate1;
       }
-    } else if (date1) {
-      // Single date provided: check if it's future (maturity) or past (start)
-      if (date1 > today) {
-        maturityDate = date1;
+    } else if (!isNaN(time1)) {
+      if (isoDate1 > today) {
+        maturityDate = isoDate1;
         startDate = today;
       } else {
-        startDate = date1;
+        startDate = isoDate1;
       }
     }
 
@@ -130,9 +155,6 @@ export function parsePastedFdRows(rawText: string): ParsedFdItem[] {
   return parsed;
 }
 
-/**
- * Inserts parsed FD items in bulk into the holdings table
- */
 export function saveBulkFdsToDb(db: Database, items: ParsedFdItem[]): number {
   let count = 0;
   db.run('BEGIN TRANSACTION');
