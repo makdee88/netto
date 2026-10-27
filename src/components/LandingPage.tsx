@@ -47,6 +47,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       const hash = window.location.hash.toLowerCase();
       if (hash === '#privacy') setActiveLegalModal('privacy');
       else if (hash === '#terms') setActiveLegalModal('terms');
+      else if (hash === '#guide' || hash === '#help' || hash === '#how-to-use') {
+        setShowHowToUse(true);
+      }
     };
     handleHash();
     window.addEventListener('hashchange', handleHash);
