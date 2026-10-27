@@ -515,18 +515,18 @@ export default function App() {
     <div className={`min-h-screen ${isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
       {floatingBar}
 
-      {/* Primary Dashboard Header: Actions Left, Info/Guide/Settings Right */}
+{/* Two-Line Balanced Dashboard Header */}
       <header
-        className={`max-w-7xl mx-auto px-6 py-4 flex flex-wrap items-center justify-between gap-4 border-b ${
+        className={`max-w-7xl mx-auto px-6 py-4 flex flex-col gap-3 border-b ${
           isDark ? 'border-slate-800 bg-slate-900/80' : 'border-slate-200 bg-white shadow-sm'
         }`}
       >
         {/* ========================================================= */}
-        {/* LEFT SIDE: Brand, Navigation Tabs, and Ledger Actions     */}
+        {/* LINE 1: Branding (Left) <---> Navigation Tabs (Right)     */}
         {/* ========================================================= */}
-        <div className="flex flex-wrap items-center gap-3">
-          {/* Logo & Vault Identity */}
-          <div className="flex items-center gap-2.5 pr-2">
+        <div className="flex items-center justify-between gap-4">
+          {/* Left: Branding & Vault Identity */}
+          <div className="flex items-center gap-2.5">
             <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
               <ShieldCheck className="w-5 h-5" />
             </div>
@@ -539,19 +539,19 @@ export default function App() {
                 >
                   netto
                 </h1>
-                <span className="text-[10px] bg-emerald-500/20 text-emerald-500 px-2 py-0.5 rounded-full font-medium">
+                <span className="text-[11px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full font-medium">
                   {activeVaultName}
                 </span>
               </div>
-              <p className="text-[11px] opacity-70 leading-none">{statusMsg}</p>
+              <p className="text-[11px] opacity-70 leading-none mt-0.5">{statusMsg}</p>
             </div>
           </div>
 
-          {/* Navigation View Switcher */}
+          {/* Right: Overview / Manage Assets Switcher */}
           <div className="flex gap-1 bg-slate-950/20 p-1 rounded-xl text-xs font-semibold border border-slate-800/40">
             <button
               onClick={() => handleTabChange('OVERVIEW')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition cursor-pointer ${
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg transition cursor-pointer ${
                 subTab === 'OVERVIEW' ? 'bg-indigo-600 text-white shadow' : 'opacity-70 hover:opacity-100'
               }`}
             >
@@ -559,16 +559,21 @@ export default function App() {
             </button>
             <button
               onClick={() => handleTabChange('MANAGE')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition cursor-pointer ${
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg transition cursor-pointer ${
                 subTab === 'MANAGE' ? 'bg-indigo-600 text-white shadow' : 'opacity-70 hover:opacity-100'
               }`}
             >
               <PlusCircle className="w-3.5 h-3.5" /> Manage Assets
             </button>
           </div>
+        </div>
 
-          {/* Action Buttons: Quotes, Currency, Drive Sync, Local Backup */}
-          <div className="flex items-center gap-2">
+        {/* ========================================================= */}
+        {/* LINE 2: Action Buttons (Left) <---> Info & Controls (Right)*/}
+        {/* ========================================================= */}
+        <div className="w-full flex flex-wrap items-center justify-between gap-3 pt-2.5 border-t border-slate-800/30">
+          {/* Actions (Left): Prices, Currency, Save to Drive, Backup */}
+          <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={async () => {
                 const symbols = holdings
@@ -654,70 +659,62 @@ export default function App() {
               <FileDown className="w-3.5 h-3.5 text-indigo-400" /> Backup File
             </button>
           </div>
-        </div>
 
-        {/* ========================================================= */}
-        {/* RIGHT SIDE: Privacy, Guide, Modals & Security Exit       */}
-        {/* ========================================================= */}
-        <div className="flex items-center gap-2">
-          {/* Privacy Screening Toggle */}
-          <button
-            onClick={() => setIsMasked(!isMasked)}
-            className={`px-3 py-1.5 rounded-xl border transition flex items-center gap-1.5 text-xs font-semibold cursor-pointer ${
-              isMasked
-                ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
-                : 'bg-indigo-600 border-indigo-500 text-white shadow-sm'
-            }`}
-            title="Toggle Privacy Mask (hides values for screen sharing/public)"
-          >
-            {isMasked ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-            <span>{isMasked ? 'Privacy: ON' : 'Privacy: OFF'}</span>
-          </button>
+          {/* Informational & Security (Right): Privacy, Guide, Info, Passphrase, Theme, Lock */}
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => setIsMasked(!isMasked)}
+              className={`px-3 py-1.5 rounded-xl border transition flex items-center gap-1.5 text-xs font-semibold cursor-pointer ${
+                isMasked
+                  ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                  : 'bg-indigo-600 border-indigo-500 text-white shadow-sm'
+              }`}
+              title="Toggle Privacy Mask (hides values for screen sharing/public)"
+            >
+              {isMasked ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+              <span>{isMasked ? 'Privacy: ON' : 'Privacy: OFF'}</span>
+            </button>
 
-          {/* How to Use Guide */}
-          <button
-            onClick={() => setShowHowToUseModal(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border border-indigo-500/30 bg-indigo-500/10 text-indigo-300 hover:bg-indigo-500/20 transition cursor-pointer"
-            title="Read feature guides and usage instructions"
-          >
-            <BookOpen className="w-3.5 h-3.5" /> How to Use
-          </button>
+            <button
+              onClick={() => setShowHowToUseModal(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border border-indigo-500/30 bg-indigo-500/10 text-indigo-300 hover:bg-indigo-500/20 transition cursor-pointer"
+              title="How to Use & Documentation"
+            >
+              <BookOpen className="w-3.5 h-3.5" /> How to Use
+            </button>
 
-          {/* Architecture / Zero-Knowledge Info */}
-          <button
-            onClick={() => setShowSecurityModal(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border border-slate-700/60 opacity-80 hover:opacity-100 hover:bg-slate-800/40 transition cursor-pointer"
-            title="Zero-Knowledge Architecture details"
-          >
-            <Info className="w-3.5 h-3.5 text-indigo-400" /> Info
-          </button>
+            <button
+              onClick={() => setShowSecurityModal(true)}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-medium border border-slate-700/60 opacity-80 hover:opacity-100 hover:bg-slate-800/40 transition cursor-pointer"
+              title="Zero-Knowledge Architecture details"
+            >
+              <Info className="w-3.5 h-3.5 text-indigo-400" /> Info
+            </button>
 
-          {/* Change Passphrase Modal */}
-          <button
-            onClick={() => setShowPassModal(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border border-slate-700/60 opacity-80 hover:opacity-100 hover:bg-slate-800/40 transition cursor-pointer"
-            title="Update your vault passphrase"
-          >
-            <KeyRound className="w-3.5 h-3.5 text-indigo-400" /> Passphrase
-          </button>
+            <button
+              onClick={() => setShowPassModal(true)}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-medium border border-slate-700/60 opacity-80 hover:opacity-100 hover:bg-slate-800/40 transition cursor-pointer"
+              title="Update your vault passphrase"
+            >
+              <KeyRound className="w-3.5 h-3.5 text-indigo-400" /> Passphrase
+            </button>
 
-          {/* Theme Switcher */}
-          <button
-            onClick={toggleTheme}
-            className="p-2 rounded-xl border border-slate-700/60 opacity-80 hover:opacity-100 hover:bg-slate-800/40 transition cursor-pointer"
-            title="Toggle Light/Dark Theme"
-          >
-            {isDark ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-slate-700" />}
-          </button>
+            <button
+              onClick={toggleTheme}
+              className="p-2 rounded-xl border border-slate-700/60 opacity-80 hover:opacity-100 hover:bg-slate-800/40 transition cursor-pointer"
+              title="Toggle Light/Dark Theme"
+            >
+              {isDark ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-slate-700" />}
+            </button>
 
-          {/* Immediate Vault Lock */}
-          <button
-            onClick={handleExplicitLock}
-            className="p-2 rounded-xl border border-rose-500/30 text-rose-400 hover:bg-rose-500/10 transition cursor-pointer ml-1"
-            title="Lock Vault Now"
-          >
-            <Lock className="w-4 h-4" />
-          </button>
+            <button
+              onClick={handleExplicitLock}
+              className="p-2 rounded-xl border border-rose-500/30 text-rose-400 hover:bg-rose-500/10 transition cursor-pointer ml-1"
+              title="Lock Vault Now"
+            >
+              <Lock className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </header>
 
