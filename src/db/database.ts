@@ -719,3 +719,31 @@ export const saveHoldingSectors = (db: Database, symbol: string, sectors: Sector
   }
   db.run(`COMMIT`);
 };
+
+import { matchHoldingToSectorWeights } from '../utils/sectorPresets';
+
+export const autoClassifyAllHoldings = (db: Database): number => {
+  const res = db.exec(`SELECT symbol, name FROM holdings WHERE category IN ('EQUITY', 'MUTUAL_FUND')`);
+  if (!res || res.length === 0) return 0;
+
+  db.run(`BEGIN TRANSACTION`);
+  let updatedCount = 0;
+
+  res[0].values.forEach((row) => {
+    const symbol = String(row[0]);
+    const name = String(row[1]);
+    const weights = matchHoldingToSectorWeights(name, symbol);
+
+    db.run(`DELETE FROM holding_sectors WHERE symbol = ?`, [symbol]);
+    weights.forEach((w) => {
+      db.run(
+        `INSERT INTO holding_sectors (symbol, sector, weight_pct) VALUES (?, ?, ?)`,
+        [symbol, w.sector, w.weight_pct]
+      );
+    });
+    updatedCount++;
+  });
+
+  db.run(`COMMIT`);
+  return updatedCount;
+};

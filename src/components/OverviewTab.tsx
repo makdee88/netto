@@ -31,6 +31,8 @@ import {
   SectorWeight,
 } from '../types';
 import type { Database } from 'sql.js';
+import { autoClassifyAllHoldings } from '../db/database';
+import { Sparkles, Activity } from 'lucide-react';
 
 interface OverviewTabProps {
   db: Database;
@@ -66,6 +68,15 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
   const liabilities: LiabilityRow[] = useMemo(() => getLiabilities(db), [db]);
   const allTransactions: TransactionRow[] = useMemo(() => getAllTransactions(db), [db]);
   const sectorDatabaseMap = useMemo(() => getAllHoldingSectors(db), [db]);
+
+  const [classifyNotice, setClassifyNotice] = useState<string>('');
+
+  const handleAutoClassifyAll = () => {
+    const count = autoClassifyAllHoldings(db);
+    setClassifyNotice(`Classified ${count} holdings!`);
+    setTimeout(() => setClassifyNotice(''), 3000);
+    window.location.reload(); // Refresh SQLite state into memoized map
+  };
 
   const formatVal = (amount: number, currency: string = baseCurrency) => {
     if (isMasked) return '••••••';
@@ -620,14 +631,24 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
 
       {/* 4. Look-Through Sector Exposure Breakdown */}
       <div className={`border p-6 rounded-2xl space-y-4 shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <Activity className="w-5 h-5 text-purple-400" />
             <h2 className="font-bold text-base">Equity &amp; Fund Sector Exposure</h2>
           </div>
-          <span className="text-xs opacity-60 font-mono">
-            Across {formatVal(totalEquityAndFundVal)} Equities/Funds
-          </span>
+
+          <div className="flex items-center gap-2">
+            {classifyNotice && (
+              <span className="text-[11px] font-mono text-emerald-400 font-bold">{classifyNotice}</span>
+            )}
+            <button
+              onClick={handleAutoClassifyAll}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs shadow transition cursor-pointer"
+              title="Scan all holdings and auto-map to standard GICS benchmarks"
+            >
+              <Sparkles className="w-3.5 h-3.5" /> Auto-Classify All
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-3 pt-1">
