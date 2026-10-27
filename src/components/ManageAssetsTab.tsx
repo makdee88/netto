@@ -12,6 +12,7 @@ import {
   ArrowLeft,
   FileText,
   ShieldCheck,
+  Edit2,
 } from 'lucide-react';
 import { getProperties, getLiabilities } from '../db/database';
 import { BrokerGuide } from './BrokerGuide';
@@ -51,6 +52,9 @@ interface ManageAssetsTabProps {
     remaining_balance: number;
     interest_rate: number;
   }) => void;
+  onUpdatePropertyValuation?: (id: number, currentPrice: number) => void;
+  onUpdateLiabilityBalance?: (id: number, remainingBalance: number) => void;
+  onUpdateHoldingValuation?: (id: number, marketPrice: number) => void;
   onDeleteHolding: (id: number) => void;
   onDeleteProperty: (id: number) => void;
   onDeleteLiability: (id: number) => void;
@@ -77,6 +81,9 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
   onAddFD,
   onAddProperty,
   onAddLiability,
+  onUpdatePropertyValuation,
+  onUpdateLiabilityBalance,
+  onUpdateHoldingValuation,
   onDeleteHolding,
   onDeleteProperty,
   onDeleteLiability,
@@ -392,7 +399,24 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                       <td className="py-3 text-right font-mono">
                         {h.market_price && h.market_price > 0 ? `${h.market_price.toFixed(2)} ${h.currency || 'SEK'}` : '-'}
                       </td>
-                      <td className="py-3 text-right">
+                      <td className="py-3 text-right flex items-center justify-end gap-1">
+                        {onUpdateHoldingValuation && (
+                          <button
+                            onClick={() => {
+                              const val = prompt(`Update market price for ${h.name || h.symbol}:`, String(h.market_price || h.avg_price));
+                              if (val !== null) {
+                                const parsed = parseFloat(val);
+                                if (!isNaN(parsed) && parsed >= 0) {
+                                  onUpdateHoldingValuation(h.id, parsed);
+                                }
+                              }
+                            }}
+                            className="text-indigo-400 hover:text-indigo-300 p-1"
+                            title="Update Market Price"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                         <button
                           onClick={() => onDeleteHolding(h.id)}
                           className="text-rose-400 hover:text-rose-300 p-1 rounded-lg hover:bg-rose-500/10 transition"
@@ -765,10 +789,28 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                       <td className="py-3 text-right font-mono text-sky-400 font-bold">
                         {p.current_price.toLocaleString()} {p.currency}
                       </td>
-                      <td className="py-3 text-right">
+                      <td className="py-3 text-right flex items-center justify-end gap-2">
+                        {onUpdatePropertyValuation && (
+                          <button
+                            onClick={() => {
+                              const val = prompt(`Update current market valuation for ${p.name}:`, String(p.current_price));
+                              if (val !== null) {
+                                const parsed = parseFloat(val);
+                                if (!isNaN(parsed) && parsed > 0) {
+                                  onUpdatePropertyValuation(p.id, parsed);
+                                }
+                              }
+                            }}
+                            className="text-indigo-400 hover:text-indigo-300 p-1 flex items-center gap-1"
+                            title="Update Valuation"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" /> Edit
+                          </button>
+                        )}
                         <button
                           onClick={() => onDeleteProperty(p.id)}
                           className="text-rose-400 hover:text-rose-300 p-1"
+                          title="Delete Property"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -931,10 +973,28 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                       <td className="py-3 text-right font-mono font-bold text-rose-400">
                         -{l.remaining_balance.toLocaleString()} {l.currency}
                       </td>
-                      <td className="py-3 text-right">
+                      <td className="py-3 text-right flex items-center justify-end gap-2">
+                        {onUpdateLiabilityBalance && (
+                          <button
+                            onClick={() => {
+                              const val = prompt(`Update remaining balance for ${l.name}:`, String(l.remaining_balance));
+                              if (val !== null) {
+                                const parsed = parseFloat(val);
+                                if (!isNaN(parsed) && parsed >= 0) {
+                                  onUpdateLiabilityBalance(l.id, parsed);
+                                }
+                              }
+                            }}
+                            className="text-indigo-400 hover:text-indigo-300 p-1 flex items-center gap-1"
+                            title="Update Remaining Balance"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" /> Edit
+                          </button>
+                        )}
                         <button
                           onClick={() => onDeleteLiability(l.id)}
                           className="text-rose-400 hover:text-rose-300 p-1"
+                          title="Delete Liability"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>

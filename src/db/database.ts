@@ -483,3 +483,15 @@ export function clearBrokerData(db: Database, brokerName: string) {
   db.run(`DELETE FROM holdings WHERE broker = ? AND category = 'EQUITY'`, [brokerName]);
   db.run('COMMIT');
 }
+
+export function updatePropertyValuation(db: Database, id: number, currentPrice: number) {
+  db.run(`UPDATE properties SET current_price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [currentPrice, id]);
+}
+
+export function updateLiabilityBalance(db: Database, id: number, remainingBalance: number) {
+  db.run(`UPDATE liabilities SET remaining_balance = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [remainingBalance, id]);
+}
+
+export function updateHoldingValuation(db: Database, id: number, marketPrice: number) {
+  db.run(`UPDATE holdings SET market_price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [marketPrice, id]);
+}
