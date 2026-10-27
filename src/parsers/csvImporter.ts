@@ -88,24 +88,20 @@ export async function importBrokerCsv(
         const price = normalizeNumber(r[priceIdx]);
         const amount = amtIdx !== -1 ? Math.abs(normalizeNumber(r[amtIdx])) : quantity * price;
         const currency = (r[currIdx] || 'SEK').toUpperCase();
+        const txHash = `AVANZA_${symbol}_${txDate}_${txType}_${quantity}_${price}`;
 
         if (quantity <= 0 && txType !== 'DIVIDEND') continue;
 
-        const checkRes = db.exec(
-          `SELECT id FROM transactions 
-           WHERE broker = 'Avanza' AND symbol = ? AND tx_date = ? AND tx_type = ? AND quantity = ? AND price = ?`,
-          [symbol, txDate, txType, quantity, price]
-        );
-
+        const checkRes = db.exec(`SELECT id FROM transactions WHERE tx_hash = ?`, [txHash]);
         if (checkRes.length > 0 && checkRes[0].values.length > 0) {
           duplicates++;
           continue;
         }
 
         db.run(
-          `INSERT INTO transactions (broker, symbol, name, tx_type, tx_date, quantity, price, amount, currency)
-           VALUES ('Avanza', ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [symbol, name, txType, txDate, quantity, price, amount, currency]
+          `INSERT INTO transactions (broker, symbol, name, tx_type, tx_date, quantity, price, amount, currency, tx_hash)
+           VALUES ('Avanza', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [symbol, name, txType, txDate, quantity, price, amount, currency, txHash]
         );
         newTxns++;
       }
@@ -142,6 +138,7 @@ export async function importBrokerCsv(
 
       onComplete({
         broker: 'Avanza',
+        importType: 'TRADEBOOK',
         newTransactionsAdded: newTxns,
         duplicatesSkipped: duplicates,
         holdingsUpdated: updatedCount,
@@ -150,7 +147,7 @@ export async function importBrokerCsv(
       return;
     }
 
-    // Standard CSV fallback (Zerodha / Generic CSV)
+    // Standard CSV fallback (Generic / Other Brokers)
     const delimiter = text.includes(';') ? ';' : ',';
     const rows = parseCsvLines(text, delimiter);
     if (rows.length < 2) throw new Error('CSV is empty or invalid.');
@@ -175,24 +172,20 @@ export async function importBrokerCsv(
       const price = normalizeNumber(r[priceIdx]);
       const amount = quantity * price;
       const txDate = (r[dateIdx] || new Date().toISOString().slice(0, 10)).slice(0, 10);
+      const txHash = `${broker}_${symbol}_${txDate}_${txType}_${quantity}_${price}`;
 
       if (quantity <= 0) continue;
 
-      const checkRes = db.exec(
-        `SELECT id FROM transactions 
-         WHERE broker = ? AND symbol = ? AND tx_date = ? AND tx_type = ? AND quantity = ? AND price = ?`,
-        [broker, symbol, txDate, txType, quantity, price]
-      );
-
+      const checkRes = db.exec(`SELECT id FROM transactions WHERE tx_hash = ?`, [txHash]);
       if (checkRes.length > 0 && checkRes[0].values.length > 0) {
         duplicates++;
         continue;
       }
 
       db.run(
-        `INSERT INTO transactions (broker, symbol, name, tx_type, tx_date, quantity, price, amount, currency)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'INR')`,
-        [broker, symbol, symbol, txType, txDate, quantity, price, amount]
+        `INSERT INTO transactions (broker, symbol, name, tx_type, tx_date, quantity, price, amount, currency, tx_hash)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'INR', ?)`,
+        [broker, symbol, symbol, txType, txDate, quantity, price, amount, txHash]
       );
       newTxns++;
     }
@@ -230,6 +223,7 @@ export async function importBrokerCsv(
 
     onComplete({
       broker,
+      importType: 'TRADEBOOK',
       newTransactionsAdded: newTxns,
       duplicatesSkipped: duplicates,
       holdingsUpdated: updatedCount,
