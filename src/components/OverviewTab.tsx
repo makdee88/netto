@@ -8,7 +8,7 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Globe2,
-  Calendar,
+  Landmark,
   Layers,
   ShoppingBag,
 } from 'lucide-react';
@@ -30,7 +30,8 @@ interface OverviewTabProps {
   theme: 'dark' | 'light';
   isMasked: boolean;
   onGoToManage: () => void;
-  onOpenPrivacyModal: () => void;
+  onOpenPrivacyModal?: () => void;
+  onOpenHowToUse?: () => void;
 }
 
 type TimeframeRange = '1Y' | '3Y' | '5Y' | 'ALL';
@@ -94,7 +95,12 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
 
   const filteredTimeline = (() => {
     if (range === 'ALL') return fullTimeline;
-    const limit = range === '1Y' ? (frequency === 'YEARLY' ? 1 : 12) : range === '3Y' ? (frequency === 'YEARLY' ? 3 : 36) : (frequency === 'YEARLY' ? 5 : 60);
+    const limit =
+      range === '1Y'
+        ? frequency === 'YEARLY' ? 1 : 12
+        : range === '3Y'
+        ? frequency === 'YEARLY' ? 3 : 36
+        : frequency === 'YEARLY' ? 5 : 60;
     return fullTimeline.slice(-limit);
   })();
 
@@ -138,7 +144,9 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
       : '';
 
   const timelineStartDate = filteredTimeline[0]?.date ? `${filteredTimeline[0].date}-01` : '2000-01-01';
-  const timelineEndDate = filteredTimeline[filteredTimeline.length - 1]?.date ? `${filteredTimeline[filteredTimeline.length - 1].date}-31` : '2099-12-31';
+  const timelineEndDate = filteredTimeline[filteredTimeline.length - 1]?.date
+    ? `${filteredTimeline[filteredTimeline.length - 1].date}-31`
+    : '2099-12-31';
 
   const startMs = new Date(timelineStartDate).getTime();
   const endMs = new Date(timelineEndDate).getTime();
@@ -192,7 +200,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
           <div className="text-2xl font-extrabold mt-1 text-emerald-500 flex items-center gap-1">
             <ArrowUpRight className="w-5 h-5" /> {formatVal(totalAssets)}
           </div>
-          <span className="text-[10px] opacity-60">Equities, FDs & Properties (Current Value)</span>
+          <span className="text-[10px] opacity-60">Equities, FDs &amp; Properties (Current Value)</span>
         </div>
 
         <div className={`border p-5 rounded-2xl shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
@@ -200,7 +208,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
           <div className="text-2xl font-extrabold mt-1 text-rose-500 flex items-center gap-1">
             <ArrowDownRight className="w-5 h-5" /> {formatVal(totalLiabilities)}
           </div>
-          <span className="text-[10px] opacity-60">Mortgages & Loans</span>
+          <span className="text-[10px] opacity-60">Mortgages &amp; Loans</span>
         </div>
 
         <div className={`border p-5 rounded-2xl shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
@@ -472,7 +480,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Layers className="w-5 h-5 text-indigo-500" />
-            <h2 className="font-bold text-base">Stock & Fund Concentration (Top Holdings)</h2>
+            <h2 className="font-bold text-base">Stock &amp; Fund Concentration (Top Holdings)</h2>
           </div>
           <span className="text-xs opacity-60">{sortedHoldings.length} Total Holdings</span>
         </div>
@@ -507,64 +515,99 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         </div>
       </div>
 
-      {/* Additional Analytics Row: Currency Exposure & Upcoming FD Maturities */}{/* Right Card: Upcoming FD Maturities */}
-      <div className={`border p-6 rounded-2xl space-y-4 shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Landmark className="w-5 h-5 text-emerald-500" />
-            <h2 className="font-bold text-base">Upcoming FD Maturities</h2>
-          </div>
-        </div>
-        
-        <div className="space-y-3 pt-1">
-          {holdings
-            .filter((h) => h.category === 'FIXED_DEPOSIT' && h.maturity_date)
-            .sort((a, b) => a.maturity_date.localeCompare(b.maturity_date))
-            .slice(0, 3) // <--- Only 3 nearest FDs
-            .map((fd) => (
-              <div key={fd.id} className="flex justify-between items-center text-xs">
-                <div>
-                  <span className="font-semibold">{fd.name}</span>
-                  <span className="text-[10px] opacity-60 block">Due: {fd.maturity_date}</span>
-                </div>
-                <div className="text-right font-mono font-bold text-emerald-400">
-                  {isMasked ? '••••••' : `${(fd.market_price || fd.principal).toLocaleString()} ${fd.currency}`}
-                </div>
-              </div>
-            ))}
-        </div>
-      </div>
-
+      {/* Additional Analytics Row: Currency Exposure (Left) & Upcoming FD Maturities (Right) */}
+      <div className="grid md:grid-cols-2 gap-6">
+        {/* Left: Multi-Currency Exposure */}
         <div className={`border p-6 rounded-2xl space-y-4 shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
           <div className="flex items-center gap-2">
-            <Calendar className="w-5 h-5 text-emerald-500" />
-            <h2 className="font-bold text-base">Fixed Deposit Maturities</h2>
+            <Globe2 className="w-5 h-5 text-sky-500" />
+            <h2 className="font-bold text-base">Multi-Currency Exposure</h2>
           </div>
-          <div className="space-y-2 text-xs">
-            {holdingsWithValues.filter((h) => h.category === 'FIXED_DEPOSIT').length === 0 ? (
-              <p className="text-xs opacity-60 text-center py-6">No Fixed Deposits recorded.</p>
+          <div className="space-y-3 pt-1">
+            {Object.keys(currencyBreakdown).length === 0 ? (
+              <p className="text-xs opacity-60 text-center py-6">No currency data available.</p>
             ) : (
-              holdingsWithValues
-                .filter((h) => h.category === 'FIXED_DEPOSIT')
-                .map((fd) => (
-                  <div
-                    key={fd.id}
-                    className={`p-3 rounded-xl border flex justify-between items-center ${
-                      isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
-                    }`}
-                  >
-                    <div>
-                      <span className={`font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>{fd.name}</span>
-                      <p className="text-[10px] opacity-60">
-                        {fd.broker} • {fd.interest_rate}% interest
-                      </p>
+              Object.entries(currencyBreakdown).map(([curr, val]) => {
+                const pct = totalAssets > 0 ? (val / totalAssets) * 100 : 0;
+                return (
+                  <div key={curr} className="space-y-1 text-xs">
+                    <div className="flex justify-between font-medium">
+                      <span>{curr} Denominated Assets</span>
+                      <span>{formatVal(val)} ({pct.toFixed(1)}%)</span>
                     </div>
-                    <div className="text-right">
-                      <span className="font-semibold text-emerald-500">{fd.maturity_date || 'No maturity date'}</span>
-                      <p className="text-[10px] opacity-60">{formatVal(fd.baseVal)}</p>
+                    <div className={`w-full h-2 rounded-full overflow-hidden ${isDark ? 'bg-slate-950' : 'bg-slate-100'}`}>
+                      <div style={{ width: `${pct}%` }} className="h-full rounded-full bg-sky-500" />
                     </div>
                   </div>
-                ))
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        {/* Right: Upcoming FD Maturities (Nearest 3 Only) */}
+        <div className={`border p-6 rounded-2xl space-y-4 shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Landmark className="w-5 h-5 text-emerald-500" />
+              <h2 className="font-bold text-base">Upcoming FD Maturities</h2>
+            </div>
+            {holdings.filter((h) => h.category === 'FIXED_DEPOSIT' && h.maturity_date).length > 3 && (
+              <button
+                onClick={onGoToManage}
+                className="text-[11px] text-indigo-500 hover:underline font-semibold"
+              >
+                View all ({holdings.filter((h) => h.category === 'FIXED_DEPOSIT' && h.maturity_date).length})
+              </button>
+            )}
+          </div>
+
+          <div className="space-y-3 pt-1">
+            {holdings.filter((h) => h.category === 'FIXED_DEPOSIT' && h.maturity_date).length === 0 ? (
+              <p className="text-xs opacity-60 text-center py-6">No Fixed Deposits recorded with maturity dates.</p>
+            ) : (
+              holdings
+                .filter((h) => h.category === 'FIXED_DEPOSIT' && h.maturity_date)
+                .sort((a, b) => (a.maturity_date || '').localeCompare(b.maturity_date || ''))
+                .slice(0, 3)
+                .map((fd) => {
+                  const today = new Date().toISOString().slice(0, 10);
+                  const isMatured = Boolean(fd.maturity_date && fd.maturity_date < today);
+                  const daysRemaining = fd.maturity_date
+                    ? Math.ceil((new Date(fd.maturity_date).getTime() - new Date().getTime()) / 86400000)
+                    : 0;
+                  const displayVal = fd.market_price && fd.market_price > 0 ? fd.market_price : fd.principal || 0;
+
+                  return (
+                    <div
+                      key={fd.id}
+                      className={`p-3 rounded-xl border flex items-center justify-between text-xs transition ${
+                        isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                      }`}
+                    >
+                      <div>
+                        <span className={`font-bold block ${isDark ? 'text-white' : 'text-slate-900'}`}>{fd.name}</span>
+                        <div className="text-[10px] opacity-60 flex items-center gap-1.5 mt-0.5">
+                          <span>{fd.broker}</span>
+                          <span>•</span>
+                          <span>Due: {fd.maturity_date}</span>
+                          <span>•</span>
+                          {isMatured ? (
+                            <span className="text-emerald-500 font-bold">Matured</span>
+                          ) : (
+                            <span className="text-indigo-400 font-medium">{daysRemaining}d left</span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className="font-bold text-emerald-500 block">
+                          {isMasked ? '••••••' : `${Math.round(displayVal).toLocaleString()} ${fd.currency}`}
+                        </span>
+                        <span className="text-[10px] opacity-60 font-mono">{fd.interest_rate}% p.a.</span>
+                      </div>
+                    </div>
+                  );
+                })
             )}
           </div>
         </div>
@@ -594,7 +637,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
             {holdingsWithValues.length === 0 ? (
               <tr>
                 <td colSpan={7} className="p-10 text-center opacity-60">
-                  No holdings found. Click <b>Manage & Import Assets</b> above.
+                  No holdings found. Click <b>Manage &amp; Import Assets</b> above.
                 </td>
               </tr>
             ) : (
@@ -656,7 +699,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         <div className={`p-4 border-b flex justify-between items-center ${isDark ? 'border-slate-800' : 'border-slate-200'}`}>
           <div className="flex items-center gap-2">
             <Building2 className="w-4 h-4 text-amber-500" />
-            <h3 className="font-bold text-sm">Real Estate & Properties</h3>
+            <h3 className="font-bold text-sm">Real Estate &amp; Properties</h3>
           </div>
           <button onClick={onGoToManage} className="text-xs text-indigo-500 hover:underline font-semibold">
             + Add Property
@@ -711,7 +754,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         <div className={`p-4 border-b flex justify-between items-center ${isDark ? 'border-slate-800' : 'border-slate-200'}`}>
           <div className="flex items-center gap-2">
             <CreditCard className="w-4 h-4 text-rose-500" />
-            <h3 className="font-bold text-sm">Liabilities & Outstanding Loans</h3>
+            <h3 className="font-bold text-sm">Liabilities &amp; Outstanding Loans</h3>
           </div>
           <button onClick={onGoToManage} className="text-xs text-indigo-500 hover:underline font-semibold">
             + Add Liability
