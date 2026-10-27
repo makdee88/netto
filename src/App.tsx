@@ -699,12 +699,13 @@ export default function App() {
           />
         ) : (
           <ManageAssetsTab
-            db={db}
+          db={db}
             holdings={holdings}
             theme={theme}
             onBackToOverview={() => handleTabChange('OVERVIEW')}
             onCsvImport={(file, broker) =>
-              importBrokerCsv(file, broker, db, async (summary) => {
+              // Added 'return' so async parsing is properly awaited and errors are caught
+              return importBrokerCsv(file, broker, db, async (summary) => {
                 await persistEncryptedVault(db);
                 refreshHoldings(db);
                 setCsvSummary(summary);

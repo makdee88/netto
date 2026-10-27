@@ -215,19 +215,26 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                 <span>Upload File</span>
               </label>
               <input
-                type="file"
-                accept=".csv, .xlsx, .xls, text/csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) {
-                    onCsvImport(file, selectedBroker);
-                    e.target.value = '';
-                  }
-                }}
-                className="hidden"
-                id="broker-file-upload"
-              />
-
+                    type="file"
+                    accept=".csv, .xlsx, .xls, text/csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        console.log('File selected:', file.name, file.size, file.type);
+                        try {
+                          await onCsvImport(file, selectedBroker);
+                          console.log('Import completed successfully');
+                        } catch (err: any) {
+                          console.error('Import error caught:', err);
+                          alert(`Import failed: ${err?.message || err}`);
+                        } finally {
+                          e.target.value = ''; // Reset input
+                        }
+                      }
+                    }}
+                    className="hidden"
+                    id="broker-file-input"
+                  />
               <button
                 onClick={() => {
                   if (confirm(`Wipe all imported transactions and holdings for ${selectedBroker}?`)) {
