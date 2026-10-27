@@ -507,34 +507,33 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         </div>
       </div>
 
-      {/* Additional Analytics Row: Currency Exposure & Upcoming FD Maturities */}
-      <div className="grid md:grid-cols-2 gap-6">
-        <div className={`border p-6 rounded-2xl space-y-4 shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+      {/* Additional Analytics Row: Currency Exposure & Upcoming FD Maturities */}{/* Right Card: Upcoming FD Maturities */}
+      <div className={`border p-6 rounded-2xl space-y-4 shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+        <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Globe2 className="w-5 h-5 text-sky-500" />
-            <h2 className="font-bold text-base">Multi-Currency Exposure</h2>
-          </div>
-          <div className="space-y-3 pt-1">
-            {Object.keys(currencyBreakdown).length === 0 ? (
-              <p className="text-xs opacity-60 text-center py-6">No currency data available.</p>
-            ) : (
-              Object.entries(currencyBreakdown).map(([curr, val]) => {
-                const pct = totalAssets > 0 ? (val / totalAssets) * 100 : 0;
-                return (
-                  <div key={curr} className="space-y-1 text-xs">
-                    <div className="flex justify-between font-medium">
-                      <span>{curr} Denominated Assets</span>
-                      <span>{formatVal(val)} ({pct.toFixed(1)}%)</span>
-                    </div>
-                    <div className={`w-full h-2 rounded-full overflow-hidden ${isDark ? 'bg-slate-950' : 'bg-slate-100'}`}>
-                      <div style={{ width: `${pct}%` }} className="h-full rounded-full bg-sky-500" />
-                    </div>
-                  </div>
-                );
-              })
-            )}
+            <Landmark className="w-5 h-5 text-emerald-500" />
+            <h2 className="font-bold text-base">Upcoming FD Maturities</h2>
           </div>
         </div>
+        
+        <div className="space-y-3 pt-1">
+          {holdings
+            .filter((h) => h.category === 'FIXED_DEPOSIT' && h.maturity_date)
+            .sort((a, b) => a.maturity_date.localeCompare(b.maturity_date))
+            .slice(0, 3) // <--- Only 3 nearest FDs
+            .map((fd) => (
+              <div key={fd.id} className="flex justify-between items-center text-xs">
+                <div>
+                  <span className="font-semibold">{fd.name}</span>
+                  <span className="text-[10px] opacity-60 block">Due: {fd.maturity_date}</span>
+                </div>
+                <div className="text-right font-mono font-bold text-emerald-400">
+                  {isMasked ? '••••••' : `${(fd.market_price || fd.principal).toLocaleString()} ${fd.currency}`}
+                </div>
+              </div>
+            ))}
+        </div>
+      </div>
 
         <div className={`border p-6 rounded-2xl space-y-4 shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
           <div className="flex items-center gap-2">
