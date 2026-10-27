@@ -735,7 +735,7 @@ export const autoClassifyAllHoldings = (db: Database): number => {
     const weights = matchHoldingToSectorWeights(name, symbol);
 
     db.run(`DELETE FROM holding_sectors WHERE symbol = ?`, [symbol]);
-    weights.forEach((w) => {
+    weights.forEach((w: SectorWeight) => {
       db.run(
         `INSERT INTO holding_sectors (symbol, sector, weight_pct) VALUES (?, ?, ?)`,
         [symbol, w.sector, w.weight_pct]

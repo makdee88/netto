@@ -12,6 +12,7 @@ import {
   Layers,
   ShoppingBag,
   Activity,
+  Sparkles,
 } from 'lucide-react';
 import {
   calculateFDCurrentValue,
@@ -32,7 +33,6 @@ import {
 } from '../types';
 import type { Database } from 'sql.js';
 import { autoClassifyAllHoldings } from '../db/database';
-import { Sparkles, Activity } from 'lucide-react';
 
 interface OverviewTabProps {
   db: Database;
