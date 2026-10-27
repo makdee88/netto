@@ -88,6 +88,10 @@ export async function initDatabase(savedBytes?: Uint8Array): Promise<Database> {
     db.run("INSERT INTO app_config (key, value) VALUES ('vault_id', ?)", [crypto.randomUUID()]);
     db.run("INSERT INTO app_config (key, value) VALUES ('base_currency', 'SEK')");
   }
+
+  // Refresh FD valuations to reflect accrued interest up to today
+  refreshFdHoldingsValuations(db);
+
   return db;
 }
 
@@ -191,7 +195,7 @@ export function recalculateHoldingsFromTransactions(db: Database, brokerName: st
 
 export interface HistoricalTimelinePoint {
   date: string;          // YYYY-MM
-  label: string;         // e.g. "Oct 24"
+  label: string;         // e.g. "Oct '26"
   investedCost: number;  // Total cumulative cost basis in baseCurrency
   portfolioValue: number;// Total market value in baseCurrency
   equitiesValue: number; // Equities/Funds portion
@@ -276,7 +280,6 @@ export function getHistoricalPortfolioTimeline(
     }
   }
 
-  // Filter checkpoints based on frequency (Yearly picks December or current month for the current year)
   const checkpoints = rawCheckpoints.filter((cp, idx) => {
     if (frequency === 'YEARLY') {
       const next = rawCheckpoints[idx + 1];
@@ -292,15 +295,6 @@ export function getHistoricalPortfolioTimeline(
       const p = h.market_price > 0 ? h.market_price : h.avg_price;
       liveHoldingPrices.set(`${h.broker}|${h.symbol}`, p);
     }
-  }
-
-  interface RunningPos {
-    broker: string;
-    symbol: string;
-    currency: string;
-    qty: number;
-    cost: number;
-    lastKnownPrice: number;
   }
 
   const runningPositions = new Map<string, RunningPos>();
@@ -394,7 +388,7 @@ export function getHistoricalPortfolioTimeline(
     }
 
     const mIdx = cp.month - 1;
-    const label = frequency === 'YEARLY' ? String(cp.year) : cp.isCurrentMonth ? 'Now' : `${monthNames[mIdx]} '${String(cp.year).slice(2)}` ;
+    const label = frequency === 'YEARLY' ? String(cp.year) : cp.isCurrentMonth ? 'Now' : `${monthNames[mIdx]} '${String(cp.year).slice(2)}`;
 
     timeline.push({
       date: cp.ym,
@@ -424,10 +418,22 @@ export function getSnapshots(db: Database): Array<{ date: string; assets: number
   const rows: Array<{ date: string; assets: number; liabilities: number; netWorth: number }> = [];
   while (stmt.step()) {
     const r = stmt.getAsObject();
-    rows.push({ date: r.snapshot_date, assets: r.total_assets_sek, liabilities: r.total_liabilities_sek, netWorth: r.net_worth_sek });
+    rows.push({ date: r.snapshot_date as string, assets: r.total_assets_sek as number, liabilities: r.total_liabilities_sek as number, netWorth: r.net_worth_sek as number });
   }
   stmt.free();
   return rows;
+}
+
+export function getHoldings(db: Database): HoldingRow[] {
+  const stmt = db.prepare('SELECT * FROM holdings ORDER BY broker ASC, category ASC, name ASC');
+  const rows: HoldingRow[] = [];
+  while (stmt.step()) rows.push(stmt.getAsObject() as unknown as HoldingRow);
+  stmt.free();
+  return rows;
+}
+
+export function deleteHolding(db: Database, id: number) {
+  db.run(`DELETE FROM holdings WHERE id = ?`, [id]);
 }
 
 export function getProperties(db: Database): PropertyRow[] {
@@ -438,6 +444,29 @@ export function getProperties(db: Database): PropertyRow[] {
   return rows;
 }
 
+export function addProperty(
+  db: Database,
+  p: {
+    name: string;
+    property_type: string;
+    currency: CurrencyCode;
+    buy_price: number;
+    buy_month: number;
+    buy_year: number;
+    current_price: number;
+  }
+) {
+  db.run(
+    `INSERT INTO properties (name, property_type, currency, buy_price, buy_month, buy_year, current_price)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [p.name, p.property_type, p.currency, p.buy_price, p.buy_month, p.buy_year, p.current_price]
+  );
+}
+
+export function deleteProperty(db: Database, id: number) {
+  db.run(`DELETE FROM properties WHERE id = ?`, [id]);
+}
+
 export function getLiabilities(db: Database): LiabilityRow[] {
   const stmt = db.prepare('SELECT * FROM liabilities ORDER BY name');
   const rows: LiabilityRow[] = [];
@@ -446,7 +475,71 @@ export function getLiabilities(db: Database): LiabilityRow[] {
   return rows;
 }
 
-export function calculateFDCurrentValue(h: HoldingRow): number {
+export function addLiability(
+  db: Database,
+  l: {
+    name: string;
+    liability_type: string;
+    currency: CurrencyCode;
+    total_loan: number;
+    remaining_balance: number;
+    interest_rate: number;
+  }
+) {
+  db.run(
+    `INSERT INTO liabilities (name, liability_type, currency, total_loan, remaining_balance, interest_rate)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [l.name, l.liability_type, l.currency, l.total_loan, l.remaining_balance, l.interest_rate]
+  );
+}
+
+export function deleteLiability(db: Database, id: number) {
+  db.run(`DELETE FROM liabilities WHERE id = ?`, [id]);
+}
+
+export function addFixedDeposit(
+  db: Database,
+  fd: {
+    broker: string;
+    symbol: string;
+    name: string;
+    currency: CurrencyCode;
+    principal: number;
+    interest_rate: number;
+    compounding_freq: number;
+    start_date: string;
+    maturity_date: string;
+  }
+) {
+  db.run(
+    `INSERT INTO holdings (
+      broker, category, symbol, name, currency, quantity, avg_price, market_price,
+      principal, interest_rate, compounding_freq, start_date, maturity_date
+    ) VALUES (?, 'FIXED_DEPOSIT', ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      fd.broker,
+      fd.symbol,
+      fd.name,
+      fd.currency,
+      fd.principal,
+      fd.principal,
+      fd.principal,
+      fd.interest_rate,
+      fd.compounding_freq,
+      fd.start_date,
+      fd.maturity_date,
+    ]
+  );
+  refreshFdHoldingsValuations(db);
+}
+
+export function calculateFDCurrentValue(h: {
+  principal?: number;
+  interest_rate?: number;
+  start_date?: string;
+  maturity_date?: string;
+  compounding_freq?: number;
+}): number {
   if (!h.principal || !h.interest_rate || !h.start_date) return h.principal || 0;
   const start = new Date(h.start_date).getTime();
   const now = Date.now();
@@ -457,6 +550,53 @@ export function calculateFDCurrentValue(h: HoldingRow): number {
   const r = h.interest_rate / 100;
   const n = h.compounding_freq || 4;
   return h.principal * Math.pow(1 + r / n, n * yearsElapsed);
+}
+
+/**
+ * Recalculates and updates the live market_price for all Fixed Deposit rows in the database.
+ */
+export function refreshFdHoldingsValuations(db: Database): number {
+  const fds = db.exec(`
+    SELECT id, principal, interest_rate, compounding_freq, start_date, maturity_date 
+    FROM holdings 
+    WHERE category = 'FIXED_DEPOSIT'
+  `);
+
+  if (fds.length === 0 || fds[0].values.length === 0) return 0;
+
+  let count = 0;
+  db.run('BEGIN TRANSACTION');
+  try {
+    for (const row of fds[0].values) {
+      const [id, principal, rate, freq, start, mat] = row as [
+        number,
+        number,
+        number,
+        number,
+        string,
+        string
+      ];
+      const liveValue = calculateFDCurrentValue({
+        principal,
+        interest_rate: rate,
+        compounding_freq: freq,
+        start_date: start,
+        maturity_date: mat,
+      });
+
+      db.run(
+        `UPDATE holdings SET market_price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        [Number(liveValue.toFixed(2)), id]
+      );
+      count++;
+    }
+    db.run('COMMIT');
+    return count;
+  } catch (err) {
+    db.run('ROLLBACK');
+    console.error('Failed to sync FD valuations:', err);
+    return 0;
+  }
 }
 
 export function parseNumber(val: string | number | undefined): number {
@@ -485,13 +625,22 @@ export function clearBrokerData(db: Database, brokerName: string) {
 }
 
 export function updatePropertyValuation(db: Database, id: number, currentPrice: number) {
-  db.run(`UPDATE properties SET current_price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [currentPrice, id]);
+  db.run(
+    `UPDATE properties SET current_price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+    [currentPrice, id]
+  );
 }
 
 export function updateLiabilityBalance(db: Database, id: number, remainingBalance: number) {
-  db.run(`UPDATE liabilities SET remaining_balance = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [remainingBalance, id]);
+  db.run(
+    `UPDATE liabilities SET remaining_balance = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+    [remainingBalance, id]
+  );
 }
 
 export function updateHoldingValuation(db: Database, id: number, marketPrice: number) {
-  db.run(`UPDATE holdings SET market_price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [marketPrice, id]);
+  db.run(
+    `UPDATE holdings SET market_price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+    [marketPrice, id]
+  );
 }

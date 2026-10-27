@@ -1,97 +1,109 @@
 import type { Database } from 'sql.js';
-import { CsvImportResult } from '../types';
+import { CurrencyCode, CsvImportResult } from '../types';
 
-function parseCsvLines(text: string, delimiter = ','): string[][] {
-  const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
-  return lines.map((line) => {
-    const row: string[] = [];
-    let insideQuotes = false;
-    let entry = '';
-
-    for (let i = 0; i < line.length; i++) {
-      const char = line[i];
-      if (char === '"') {
-        insideQuotes = !insideQuotes;
-      } else if (char === delimiter && !insideQuotes) {
-        row.push(entry.trim().replace(/^"|"$/g, ''));
-        entry = '';
-      } else {
-        entry += char;
-      }
-    }
-    row.push(entry.trim().replace(/^"|"$/g, ''));
-    return row;
-  });
+export interface ParsedFdItem {
+  id: string;
+  broker: string;
+  name: string;
+  currency: CurrencyCode;
+  principal: number;
+  interestRate: number;
+  compoundingFreq: number;
+  startDate: string;
+  maturityDate: string;
 }
 
 function normalizeNumber(str: string): number {
   if (!str) return 0;
-  const clean = str.replace(/\s/g, '').replace(',', '.');
+  const clean = str.replace(/[^\d.,-]/g, '').replace(',', '.');
   const num = parseFloat(clean);
   return isNaN(num) ? 0 : num;
 }
 
-export async function parseFixedDepositsCsv(
-  file: File,
-  db: Database,
-  onComplete: (summary: CsvImportResult) => void
-): Promise<CsvImportResult> {
-  const text = await file.text();
-  const delimiter = text.includes(';') ? ';' : ',';
-  const rows = parseCsvLines(text, delimiter);
-  if (rows.length < 2) throw new Error('FD CSV is empty or invalid.');
+/**
+ * Parses raw text from clipboard (tab-separated from Excel or comma-separated)
+ */
+export function parsePastedFdRows(rawText: string): ParsedFdItem[] {
+  const lines = rawText
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
 
-  const headers = rows[0].map((h) => h.toLowerCase());
-  const instIdx = headers.findIndex((h) => h.includes('institution') || h.includes('broker') || h.includes('bank'));
-  const nameIdx = headers.findIndex((h) => h.includes('name') || h.includes('deposit') || h.includes('description'));
-  const currIdx = headers.findIndex((h) => h.includes('currency'));
-  const prinIdx = headers.findIndex((h) => h.includes('principal') || h.includes('amount'));
-  const rateIdx = headers.findIndex((h) => h.includes('rate') || h.includes('interest'));
-  const freqIdx = headers.findIndex((h) => h.includes('compounding') || h.includes('freq'));
-  const startIdx = headers.findIndex((h) => h.includes('start'));
-  const matIdx = headers.findIndex((h) => h.includes('maturity') || h.includes('end'));
+  const parsed: ParsedFdItem[] = [];
 
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    // Split by tab (Excel/Sheets clipboard) or comma
+    const cols = line.includes('\t') ? line.split('\t') : line.split(',');
+
+    // Skip possible header rows
+    if (i === 0 && /(bank|institution|principal|amount|rate)/i.test(line)) {
+      continue;
+    }
+
+    if (cols.length < 3) continue;
+
+    const broker = cols[0]?.trim() || 'Bank';
+    const name = cols[1]?.trim() || 'Fixed Deposit';
+    const principal = normalizeNumber(cols[2]);
+    const interestRate = cols[3] ? normalizeNumber(cols[3]) : 3.5;
+    const rawCurrency = (cols[4]?.trim().toUpperCase() || 'SEK') as CurrencyCode;
+    const currency = ['SEK', 'INR', 'USD', 'EUR'].includes(rawCurrency) ? rawCurrency : 'SEK';
+    const maturityDate = cols[5]?.trim() || '';
+    const startDate = cols[6]?.trim() || new Date().toISOString().slice(0, 10);
+    const compoundingFreq = parseInt(cols[7] || '4', 10) || 4;
+
+    if (principal > 0) {
+      parsed.push({
+        id: `paste_${Date.now()}_${i}`,
+        broker,
+        name,
+        currency,
+        principal,
+        interestRate,
+        compoundingFreq,
+        startDate,
+        maturityDate,
+      });
+    }
+  }
+
+  return parsed;
+}
+
+/**
+ * Inserts parsed FD items in bulk into the holdings table
+ */
+export function saveBulkFdsToDb(db: Database, items: ParsedFdItem[]): number {
   let count = 0;
   db.run('BEGIN TRANSACTION');
 
   try {
-    for (let i = 1; i < rows.length; i++) {
-      const r = rows[i];
-      if (!r || r.length < 4) continue;
-
-      const broker = (r[instIdx] || 'Bank').trim();
-      const name = (r[nameIdx] || 'Fixed Deposit').trim();
-      const currency = (r[currIdx] || 'SEK').toUpperCase().trim();
-      const principal = normalizeNumber(r[prinIdx]);
-      const interestRate = normalizeNumber(r[rateIdx]);
-      const compoundingFreq = parseInt(r[freqIdx] || '4', 10) || 4;
-      const startDate = (r[startIdx] || new Date().toISOString().slice(0, 10)).trim();
-      const maturityDate = (r[matIdx] || '').trim();
-      const symbol = `FD_${name.toUpperCase().replace(/[^A-Z0-9]/g, '_')}_${Date.now()}`;
-
-      if (principal <= 0) continue;
-
+    for (const item of items) {
+      const symbol = `FD_${item.broker.toUpperCase()}_${Date.now()}_${count}`;
       db.run(
         `INSERT INTO holdings (broker, category, symbol, name, currency, principal, interest_rate, compounding_freq, start_date, maturity_date, quantity, avg_price, market_price)
          VALUES (?, 'FIXED_DEPOSIT', ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
-        [broker, symbol, name, currency, principal, interestRate, compoundingFreq, startDate, maturityDate, principal, principal]
+        [
+          item.broker,
+          symbol,
+          item.name,
+          item.currency,
+          item.principal,
+          item.interestRate,
+          item.compoundingFreq,
+          item.startDate,
+          item.maturityDate,
+          item.principal,
+          item.principal,
+        ]
       );
       count++;
     }
-
     db.run('COMMIT');
-
-    const result: CsvImportResult = {
-      broker: 'Fixed Deposits Bulk',
-      importType: 'TRADEBOOK',
-      newTransactionsAdded: 0,
-      duplicatesSkipped: 0,
-      holdingsUpdated: count,
-    };
-    onComplete(result);
-    return result;
-  } catch (err: any) {
+    return count;
+  } catch (err) {
     db.run('ROLLBACK');
-    throw new Error(`Failed to parse FD CSV: ${err?.message || err}`);
+    throw err;
   }
 }

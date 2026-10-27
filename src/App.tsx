@@ -8,6 +8,10 @@ import {
   getProperties,
   getLiabilities,
   clearBrokerData,
+  updatePropertyValuation,
+  updateLiabilityBalance,
+  updateHoldingValuation,
+  refreshFdHoldingsValuations,
 } from './db/database';
 import {
   encryptSqliteBytes,
@@ -116,6 +120,9 @@ export default function App() {
   const refreshHoldings = useCallback(
     (database: Database) => {
       try {
+        // Auto-recalculate live compound interest market_price for FDs
+        refreshFdHoldingsValuations(database);
+
         const stmt = database.prepare('SELECT * FROM holdings ORDER BY broker, name');
         const rows: HoldingRow[] = [];
         while (stmt.step()) rows.push(stmt.getAsObject() as unknown as HoldingRow);
@@ -125,7 +132,9 @@ export default function App() {
         const totalAssets = rows.reduce((sum, h) => {
           const nativeVal =
             h.category === 'FIXED_DEPOSIT'
-              ? h.principal
+              ? h.market_price > 0
+                ? h.market_price
+                : h.principal
               : h.quantity * (h.market_price > 0 ? h.market_price : h.avg_price);
           return sum + (nativeVal * (fxRates[h.currency] || 1)) / (fxRates[baseCurrency] || 1);
         }, 0);
@@ -700,19 +709,19 @@ export default function App() {
         ) : (
           <ManageAssetsTab
             db={db}
-              holdings={holdings}
-              theme={theme}
-              onBackToOverview={() => handleTabChange('OVERVIEW')}
-              onCsvImport={(file, broker) => {
-                return importBrokerCsv(file, broker, db, async (summary) => {
-                  await persistEncryptedVault(db);
-                  refreshHoldings(db);
-                  setCsvSummary(summary);
-                  setStatusMsg(
-                    `Imported ${summary.newTransactionsAdded} txns • ${summary.holdingsUpdated} holdings`
-                  );
-                });
-              }}
+            holdings={holdings}
+            theme={theme}
+            onBackToOverview={() => handleTabChange('OVERVIEW')}
+            onCsvImport={(file, broker) => {
+              return importBrokerCsv(file, broker, db, async (summary) => {
+                await persistEncryptedVault(db);
+                refreshHoldings(db);
+                setCsvSummary(summary);
+                setStatusMsg(
+                  `Imported ${summary.newTransactionsAdded} txns • ${summary.holdingsUpdated} holdings`
+                );
+              });
+            }}
             onClearBroker={async (bName) => {
               clearBrokerData(db, bName);
               await persistEncryptedVault(db);
@@ -769,6 +778,21 @@ export default function App() {
               );
               await persistEncryptedVault(db);
               setStatusMsg(`Saved Liability: ${l.name}`);
+            }}
+            onUpdatePropertyValuation={async (id, currentPrice) => {
+              updatePropertyValuation(db, id, currentPrice);
+              await persistEncryptedVault(db);
+              setStatusMsg('Property valuation updated');
+            }}
+            onUpdateLiabilityBalance={async (id, remainingBalance) => {
+              updateLiabilityBalance(db, id, remainingBalance);
+              await persistEncryptedVault(db);
+              setStatusMsg('Liability balance updated');
+            }}
+            onUpdateHoldingValuation={async (id, marketPrice) => {
+              updateHoldingValuation(db, id, marketPrice);
+              await persistEncryptedVault(db);
+              setStatusMsg('Asset valuation updated');
             }}
             onDeleteHolding={async (id) => {
               db.run('DELETE FROM holdings WHERE id = ?', [id]);

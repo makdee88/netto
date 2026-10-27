@@ -13,9 +13,15 @@ import {
   FileText,
   ShieldCheck,
   Edit2,
+  ClipboardPaste,
+  X,
+  CheckCircle2,
+  TrendingUp,
 } from 'lucide-react';
 import { getProperties, getLiabilities } from '../db/database';
 import { BrokerGuide } from './BrokerGuide';
+import { parsePastedFdRows, saveBulkFdsToDb, ParsedFdItem } from '../parsers/fdImporter';
+import { calculateFdValuation } from '../utils/finance';
 
 interface ManageAssetsTabProps {
   db: Database;
@@ -99,6 +105,11 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
   const [csvSummary, setCsvSummary] = useState<CsvImportResult | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
+  // Quick Paste Modal State for FDs
+  const [showFdPasteModal, setShowFdPasteModal] = useState<boolean>(false);
+  const [pastedRawText, setPastedRawText] = useState<string>('');
+  const [previewFdItems, setPreviewFdItems] = useState<ParsedFdItem[]>([]);
+
   // Fixed Deposit Form
   const [fdForm, setFdForm] = useState({
     name: '',
@@ -140,6 +151,25 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
     if (freq === 4) return 'Quarterly';
     if (freq === 2) return 'Semi-Annual';
     return 'Annual';
+  };
+
+  const handleProcessPastedText = (text: string) => {
+    setPastedRawText(text);
+    const items = parsePastedFdRows(text);
+    setPreviewFdItems(items);
+  };
+
+  const handleSaveBulkFds = () => {
+    if (previewFdItems.length === 0) return;
+    try {
+      saveBulkFdsToDb(db, previewFdItems);
+      setShowFdPasteModal(false);
+      setPastedRawText('');
+      setPreviewFdItems([]);
+      window.location.reload();
+    } catch (err: any) {
+      alert(`Bulk save failed: ${err?.message || err}`);
+    }
   };
 
   return (
@@ -281,13 +311,15 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
 
           {/* Interactive Loading / Summary Box */}
           {(isUploading || csvSummary || uploadStatus) && (
-            <div className={`mb-6 p-4 rounded-2xl border text-xs transition-all ${
-              isUploading 
-                ? 'bg-indigo-500/10 border-indigo-500/30 text-indigo-300 animate-pulse' 
-                : csvSummary 
-                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' 
+            <div
+              className={`mb-6 p-4 rounded-2xl border text-xs transition-all ${
+                isUploading
+                  ? 'bg-indigo-500/10 border-indigo-500/30 text-indigo-300 animate-pulse'
+                  : csvSummary
+                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
                   : 'bg-slate-950/40 border-slate-800 text-slate-300'
-            }`}>
+              }`}
+            >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 font-semibold">
                   {isUploading ? (
@@ -298,7 +330,9 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                   ) : csvSummary ? (
                     <>
                       <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                      <span>Import Summary ({csvSummary.broker} - {csvSummary.importType})</span>
+                      <span>
+                        Import Summary ({csvSummary.broker} - {csvSummary.importType})
+                      </span>
                     </>
                   ) : (
                     <span>{uploadStatus}</span>
@@ -339,7 +373,11 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
 
           {/* Clarification Guidance: Tradebook vs Holdings Snapshot */}
           <div className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-            <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-950/40 border-slate-800' : 'bg-indigo-50/50 border-indigo-100'}`}>
+            <div
+              className={`p-4 rounded-2xl border ${
+                isDark ? 'bg-slate-950/40 border-slate-800' : 'bg-indigo-50/50 border-indigo-100'
+              }`}
+            >
               <div className="flex items-center gap-2 font-bold text-indigo-400 mb-1">
                 <FileText className="w-4 h-4" /> Tradebook (Full History)
               </div>
@@ -348,7 +386,11 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
               </p>
             </div>
 
-            <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-950/40 border-slate-800' : 'bg-amber-50/50 border-amber-100'}`}>
+            <div
+              className={`p-4 rounded-2xl border ${
+                isDark ? 'bg-slate-950/40 border-slate-800' : 'bg-amber-50/50 border-amber-100'
+              }`}
+            >
               <div className="flex items-center gap-2 font-bold text-amber-400 mb-1">
                 <ShieldCheck className="w-4 h-4" /> Holdings Snapshot (Current Position)
               </div>
@@ -402,7 +444,10 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                       <td className="py-3 text-right flex items-center justify-end gap-1">
                         <button
                           onClick={() => {
-                            const val = prompt(`Update market price for ${h.name || h.symbol}:`, String(h.market_price || h.avg_price));
+                            const val = prompt(
+                              `Update market price for ${h.name || h.symbol}:`,
+                              String(h.market_price || h.avg_price)
+                            );
                             if (val !== null) {
                               const parsed = parseFloat(val);
                               if (!isNaN(parsed) && parsed >= 0) {
@@ -446,187 +491,353 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
 
       {/* 2. Fixed Deposits Form & Table */}
       {activeFormTab === 'FD' && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div
-            className={`p-6 rounded-3xl border shadow-sm ${
-              isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
-            }`}
-          >
-            <div className="flex items-center gap-2 mb-4">
-              <Landmark className="w-4 h-4 text-emerald-400" />
-              <h3 className="text-sm font-bold">New Fixed Deposit</h3>
-            </div>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                onAddFD({
-                  ...fdForm,
-                  symbol: `FD_${Date.now()}`,
-                });
-                setFdForm({ ...fdForm, name: '', principal: 0 });
-              }}
-              className="space-y-3 text-xs"
+        <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <h3 className="text-base font-bold flex items-center gap-2">
+              <Landmark className="w-4 h-4 text-emerald-400" /> Fixed Deposits & Term Accounts
+            </h3>
+            <button
+              onClick={() => setShowFdPasteModal(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow transition"
             >
-              <div>
-                <label className="block mb-1 opacity-70">Deposit / Bank Name</label>
-                <input
-                  type="text"
-                  required
-                  value={fdForm.name}
-                  onChange={(e) => setFdForm({ ...fdForm, name: e.target.value })}
-                  className="w-full px-3 py-2 rounded-xl border bg-transparent"
-                  placeholder="e.g. SBAB Fasträntekonto 1Y"
-                />
-              </div>
-
-              <div>
-                <label className="block mb-1 opacity-70">Institution / Broker</label>
-                <input
-                  type="text"
-                  required
-                  value={fdForm.broker}
-                  onChange={(e) => setFdForm({ ...fdForm, broker: e.target.value })}
-                  className="w-full px-3 py-2 rounded-xl border bg-transparent"
-                  placeholder="e.g. SBAB, HDFC Bank"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block mb-1 opacity-70">Currency</label>
-                  <select
-                    value={fdForm.currency}
-                    onChange={(e) => setFdForm({ ...fdForm, currency: e.target.value as any })}
-                    className="w-full px-3 py-2 rounded-xl border bg-transparent"
-                  >
-                    <option value="SEK">SEK</option>
-                    <option value="INR">INR</option>
-                    <option value="USD">USD</option>
-                    <option value="EUR">EUR</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block mb-1 opacity-70">Principal</label>
-                  <input
-                    type="number"
-                    required
-                    value={fdForm.principal || ''}
-                    onChange={(e) => setFdForm({ ...fdForm, principal: parseFloat(e.target.value) || 0 })}
-                    className="w-full px-3 py-2 rounded-xl border bg-transparent"
-                    placeholder="50000"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block mb-1 opacity-70">Interest Rate (%)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={fdForm.interest_rate}
-                    onChange={(e) =>
-                      setFdForm({ ...fdForm, interest_rate: parseFloat(e.target.value) || 0 })
-                    }
-                    className="w-full px-3 py-2 rounded-xl border bg-transparent"
-                  />
-                </div>
-                <div>
-                  <label className="block mb-1 opacity-70">Compounding</label>
-                  <select
-                    value={fdForm.compounding_freq}
-                    onChange={(e) =>
-                      setFdForm({ ...fdForm, compounding_freq: parseInt(e.target.value, 10) || 1 })
-                    }
-                    className="w-full px-3 py-2 rounded-xl border bg-transparent"
-                  >
-                    <option value={1}>Annual (1x/yr)</option>
-                    <option value={2}>Semi-Annual (2x/yr)</option>
-                    <option value={4}>Quarterly (4x/yr)</option>
-                    <option value={12}>Monthly (12x/yr)</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block mb-1 opacity-70">Start Date</label>
-                  <input
-                    type="date"
-                    value={fdForm.start_date}
-                    onChange={(e) => setFdForm({ ...fdForm, start_date: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl border bg-transparent"
-                  />
-                </div>
-                <div>
-                  <label className="block mb-1 opacity-70">Maturity Date</label>
-                  <input
-                    type="date"
-                    value={fdForm.maturity_date}
-                    onChange={(e) => setFdForm({ ...fdForm, maturity_date: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl border bg-transparent"
-                  />
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold transition flex items-center justify-center gap-1.5 shadow"
-              >
-                <Plus className="w-3.5 h-3.5" /> Save Deposit
-              </button>
-            </form>
+              <ClipboardPaste className="w-3.5 h-3.5" /> Quick Paste from Excel / Web
+            </button>
           </div>
 
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div
+              className={`p-6 rounded-3xl border shadow-sm ${
+                isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+              }`}
+            >
+              <h4 className="text-xs font-bold uppercase tracking-wider opacity-70 mb-4">Add Single Deposit</h4>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  onAddFD({
+                    ...fdForm,
+                    symbol: `FD_${Date.now()}`,
+                  });
+                  setFdForm({ ...fdForm, name: '', principal: 0 });
+                }}
+                className="space-y-3 text-xs"
+              >
+                <div>
+                  <label className="block mb-1 opacity-70">Deposit / Bank Name</label>
+                  <input
+                    type="text"
+                    required
+                    value={fdForm.name}
+                    onChange={(e) => setFdForm({ ...fdForm, name: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl border bg-transparent"
+                    placeholder="e.g. SBAB Fasträntekonto 1Y"
+                  />
+                </div>
+
+                <div>
+                  <label className="block mb-1 opacity-70">Institution / Broker</label>
+                  <input
+                    type="text"
+                    required
+                    value={fdForm.broker}
+                    onChange={(e) => setFdForm({ ...fdForm, broker: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl border bg-transparent"
+                    placeholder="e.g. SBAB, HDFC Bank"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block mb-1 opacity-70">Currency</label>
+                    <select
+                      value={fdForm.currency}
+                      onChange={(e) => setFdForm({ ...fdForm, currency: e.target.value as any })}
+                      className="w-full px-3 py-2 rounded-xl border bg-transparent"
+                    >
+                      <option value="SEK">SEK</option>
+                      <option value="INR">INR</option>
+                      <option value="USD">USD</option>
+                      <option value="EUR">EUR</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block mb-1 opacity-70">Principal</label>
+                    <input
+                      type="number"
+                      required
+                      value={fdForm.principal || ''}
+                      onChange={(e) => setFdForm({ ...fdForm, principal: parseFloat(e.target.value) || 0 })}
+                      className="w-full px-3 py-2 rounded-xl border bg-transparent"
+                      placeholder="50000"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block mb-1 opacity-70">Interest Rate (%)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={fdForm.interest_rate}
+                      onChange={(e) =>
+                        setFdForm({ ...fdForm, interest_rate: parseFloat(e.target.value) || 0 })
+                      }
+                      className="w-full px-3 py-2 rounded-xl border bg-transparent"
+                    />
+                  </div>
+                  <div>
+                    <label className="block mb-1 opacity-70">Compounding</label>
+                    <select
+                      value={fdForm.compounding_freq}
+                      onChange={(e) =>
+                        setFdForm({ ...fdForm, compounding_freq: parseInt(e.target.value, 10) || 1 })
+                      }
+                      className="w-full px-3 py-2 rounded-xl border bg-transparent"
+                    >
+                      <option value={1}>Annual (1x/yr)</option>
+                      <option value={2}>Semi-Annual (2x/yr)</option>
+                      <option value={4}>Quarterly (4x/yr)</option>
+                      <option value={12}>Monthly (12x/yr)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block mb-1 opacity-70">Start Date</label>
+                    <input
+                      type="date"
+                      value={fdForm.start_date}
+                      onChange={(e) => setFdForm({ ...fdForm, start_date: e.target.value })}
+                      className="w-full px-3 py-2 rounded-xl border bg-transparent"
+                    />
+                  </div>
+                  <div>
+                    <label className="block mb-1 opacity-70">Maturity Date</label>
+                    <input
+                      type="date"
+                      value={fdForm.maturity_date}
+                      onChange={(e) => setFdForm({ ...fdForm, maturity_date: e.target.value })}
+                      className="w-full px-3 py-2 rounded-xl border bg-transparent"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold transition flex items-center justify-center gap-1.5 shadow"
+                >
+                  <Plus className="w-3.5 h-3.5" /> Save Deposit
+                </button>
+              </form>
+            </div>
+
+            <div
+              className={`lg:col-span-2 p-6 rounded-3xl border shadow-sm ${
+                isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+              }`}
+            >
+              <h4 className="text-xs font-bold uppercase tracking-wider opacity-70 mb-4">Active Fixed Deposits</h4>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-800/40 opacity-70">
+                      <th className="pb-2">Institution</th>
+                      <th className="pb-2">Deposit Name</th>
+                      <th className="pb-2 text-right">Principal</th>
+                      <th className="pb-2 text-right">Live Accrued Value</th>
+                      <th className="pb-2 text-right">Rate</th>
+                      <th className="pb-2 text-right">Maturity</th>
+                      <th className="pb-2 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/20">
+                    {fdHoldings.map((fd) => {
+                      const val = calculateFdValuation(
+                        fd.principal || 0,
+                        fd.interest_rate || 0,
+                        fd.compounding_freq || 4,
+                        fd.start_date || new Date().toISOString().slice(0, 10),
+                        fd.maturity_date
+                      );
+
+                      return (
+                        <tr key={fd.id} className="hover:bg-slate-800/10 transition">
+                          <td className="py-3 font-semibold">{fd.broker}</td>
+                          <td className="py-3">
+                            <div className="font-semibold">{fd.name}</div>
+                            <div className="text-[10px] opacity-60">
+                              {val.isMatured ? (
+                                <span className="text-emerald-400 font-semibold">Matured</span>
+                              ) : (
+                                `${val.daysRemaining} days left`
+                              )}
+                            </div>
+                          </td>
+                          <td className="py-3 text-right font-mono font-medium">
+                            {fd.principal.toLocaleString()} {fd.currency}
+                          </td>
+                          <td className="py-3 text-right font-mono font-bold text-emerald-400">
+                            <div>{val.currentValue.toLocaleString()} {fd.currency}</div>
+                            <div className="text-[10px] font-normal text-emerald-500/80">
+                              (+{val.accruedInterest.toLocaleString()} {fd.currency})
+                            </div>
+                          </td>
+                          <td className="py-3 text-right font-mono opacity-80">
+                            {fd.interest_rate}% ({formatCompoundingLabel(fd.compounding_freq)})
+                          </td>
+                          <td className="py-3 text-right font-mono opacity-80">{fd.maturity_date || '-'}</td>
+                          <td className="py-3 text-right flex items-center justify-end gap-1">
+                            <button
+                              onClick={() => {
+                                const valPrompt = prompt(
+                                  `Update principal balance for ${fd.name}:`,
+                                  String(fd.principal)
+                                );
+                                if (valPrompt !== null) {
+                                  const parsed = parseFloat(valPrompt);
+                                  if (!isNaN(parsed) && parsed > 0) {
+                                    db.run(`UPDATE holdings SET principal = ?, market_price = ? WHERE id = ?`, [
+                                      parsed,
+                                      parsed,
+                                      fd.id,
+                                    ]);
+                                    window.location.reload();
+                                  }
+                                }
+                              }}
+                              className="text-indigo-400 hover:text-indigo-300 p-1"
+                              title="Update Principal"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => onDeleteHolding(fd.id)}
+                              className="text-rose-400 hover:text-rose-300 p-1"
+                              title="Delete Deposit"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {fdHoldings.length === 0 && (
+                      <tr>
+                        <td colSpan={7} className="text-center py-8 opacity-60">
+                          No fixed deposits recorded.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Quick Paste Modal */}
+      {showFdPasteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
           <div
-            className={`lg:col-span-2 p-6 rounded-3xl border shadow-sm ${
-              isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+            className={`w-full max-w-3xl rounded-3xl p-6 sm:p-8 shadow-2xl border space-y-4 max-h-[90vh] overflow-y-auto ${
+              isDark ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
             }`}
           >
-            <h3 className="text-sm font-bold mb-4">Active Fixed Deposits</h3>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead>
-                  <tr className="border-b border-slate-800/40 opacity-70">
-                    <th className="pb-2">Institution</th>
-                    <th className="pb-2">Deposit Name</th>
-                    <th className="pb-2 text-right">Principal</th>
-                    <th className="pb-2 text-right">Interest</th>
-                    <th className="pb-2 text-right">Maturity</th>
-                    <th className="pb-2 text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/20">
-                  {fdHoldings.map((fd) => (
-                    <tr key={fd.id} className="hover:bg-slate-800/10 transition">
-                      <td className="py-3 font-semibold">{fd.broker}</td>
-                      <td className="py-3">{fd.name}</td>
-                      <td className="py-3 text-right font-mono font-medium">
-                        {fd.principal.toLocaleString()} {fd.currency}
-                      </td>
-                      <td className="py-3 text-right font-mono text-emerald-400">
-                        {fd.interest_rate}% ({formatCompoundingLabel(fd.compounding_freq)})
-                      </td>
-                      <td className="py-3 text-right font-mono opacity-80">{fd.maturity_date || '-'}</td>
-                      <td className="py-3 text-right">
-                        <button
-                          onClick={() => onDeleteHolding(fd.id)}
-                          className="text-rose-400 hover:text-rose-300 p-1"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                  {fdHoldings.length === 0 && (
-                    <tr>
-                      <td colSpan={6} className="text-center py-8 opacity-60">
-                        No fixed deposits recorded.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+            <div className="flex items-center justify-between border-b border-slate-800/20 pb-3">
+              <div>
+                <h3 className="text-sm font-bold flex items-center gap-2 text-emerald-400">
+                  <ClipboardPaste className="w-4 h-4" /> Quick Paste Fixed Deposits
+                </h3>
+                <p className="text-[11px] opacity-70 mt-0.5">
+                  Copy rows directly from Excel, Google Sheets, or your online banking table and paste them below.
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setShowFdPasteModal(false);
+                  setPastedRawText('');
+                  setPreviewFdItems([]);
+                }}
+                className="opacity-70 hover:opacity-100 p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between text-[11px] opacity-70 mb-1">
+                <span>Expected columns: Bank | Name | Principal | Rate% | Currency | MaturityDate</span>
+                <span>{previewFdItems.length} rows recognized</span>
+              </div>
+              <textarea
+                rows={5}
+                value={pastedRawText}
+                onChange={(e) => handleProcessPastedText(e.target.value)}
+                placeholder="Paste here... E.g.:&#10;SBAB&#9;Fasträntekonto 1Y&#9;100000&#9;3.75&#9;SEK&#9;2027-01-15&#10;HDFC&#9;Tax Saver FD&#9;50000&#9;7.10&#9;INR&#9;2030-05-10"
+                className={`w-full p-3 rounded-2xl border font-mono text-xs outline-none ${
+                  isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300'
+                }`}
+              />
+            </div>
+
+            {/* Preview Table */}
+            {previewFdItems.length > 0 && (
+              <div className="space-y-2">
+                <span className="text-[11px] font-bold text-indigo-400 uppercase tracking-wider">
+                  Data Preview ({previewFdItems.length} deposits)
+                </span>
+                <div className="overflow-x-auto rounded-xl border border-slate-800/20 max-h-48">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-950/20">
+                      <tr className="opacity-70">
+                        <th className="p-2">Bank</th>
+                        <th className="p-2">Deposit Name</th>
+                        <th className="p-2 text-right">Principal</th>
+                        <th className="p-2 text-right">Rate</th>
+                        <th className="p-2">Currency</th>
+                        <th className="p-2">Maturity</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/20 font-mono">
+                      {previewFdItems.map((item, idx) => (
+                        <tr key={idx} className="hover:bg-slate-800/10">
+                          <td className="p-2">{item.broker}</td>
+                          <td className="p-2">{item.name}</td>
+                          <td className="p-2 text-right font-medium">
+                            {item.principal.toLocaleString()}
+                          </td>
+                          <td className="p-2 text-right text-emerald-400">{item.interestRate}%</td>
+                          <td className="p-2">{item.currency}</td>
+                          <td className="p-2 opacity-80">{item.maturityDate || '-'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-800/20">
+              <button
+                onClick={() => {
+                  setShowFdPasteModal(false);
+                  setPastedRawText('');
+                  setPreviewFdItems([]);
+                }}
+                className="px-4 py-2 rounded-xl text-xs font-semibold opacity-70 hover:opacity-100"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={previewFdItems.length === 0}
+                onClick={handleSaveBulkFds}
+                className="flex items-center gap-1.5 px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-bold text-xs shadow transition"
+              >
+                <CheckCircle2 className="w-4 h-4" /> Save {previewFdItems.length} Deposits
+              </button>
             </div>
           </div>
         </div>
@@ -796,7 +1007,10 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                         <div className="flex items-center justify-end gap-2">
                           <button
                             onClick={() => {
-                              const val = prompt(`Update current market valuation for ${p.name}:`, String(p.current_price));
+                              const val = prompt(
+                                `Update current market valuation for ${p.name}:`,
+                                String(p.current_price)
+                              );
                               if (val !== null) {
                                 const parsed = parseFloat(val);
                                 if (!isNaN(parsed) && parsed > 0) {
@@ -984,14 +1198,20 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                       <td className="py-3 text-right flex items-center justify-end gap-2">
                         <button
                           onClick={() => {
-                            const val = prompt(`Update remaining balance for ${l.name}:`, String(l.remaining_balance));
+                            const val = prompt(
+                              `Update remaining balance for ${l.name}:`,
+                              String(l.remaining_balance)
+                            );
                             if (val !== null) {
                               const parsed = parseFloat(val);
                               if (!isNaN(parsed) && parsed >= 0) {
                                 if (onUpdateLiabilityBalance) {
                                   onUpdateLiabilityBalance(l.id, parsed);
                                 } else {
-                                  db.run(`UPDATE liabilities SET remaining_balance = ? WHERE id = ?`, [parsed, l.id]);
+                                  db.run(`UPDATE liabilities SET remaining_balance = ? WHERE id = ?`, [
+                                    parsed,
+                                    l.id,
+                                  ]);
                                   window.location.reload();
                                 }
                               }
