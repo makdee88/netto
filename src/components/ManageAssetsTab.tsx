@@ -100,7 +100,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
   const liabilities = getLiabilities(db);
 
   const [selectedBroker, setSelectedBroker] = useState<BrokerType>('Avanza');
-  const [activeFormTab, setActiveFormTab] = useState<'EQUITY' | 'FD' | 'PROPERTY' | 'LIABILITY'>('EQUITY');
+  const [activeFormTab, setActiveFormTab] = useState<'EQUITY' | 'FD' | 'PROPERTY' | 'LIABILITY' | 'PENSION'>('EQUITY');
   const [isUploading, setIsUploading] = useState<boolean>(false);
   const [uploadStatus, setUploadStatus] = useState<string>('');
   const [csvSummary, setCsvSummary] = useState<CsvImportResult | null>(null);
@@ -143,6 +143,16 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
     total_loan: 0,
     remaining_balance: 0,
     interest_rate: 3.5,
+  });
+
+  const pensionHoldings = holdings.filter((h) => h.category === 'PENSION');
+
+  // Pension Form state
+  const [pensionForm, setPensionForm] = useState({
+    name: '',
+    broker: 'Pensionsmyndigheten',
+    currency: 'SEK' as CurrencyCode,
+    valuation: 0,
   });
 
   const equityHoldings = holdings.filter((h) => h.category === 'EQUITY' || h.category === 'MUTUAL_FUND');
@@ -218,6 +228,14 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
             }`}
           >
             Loans & Mortgages
+          </button>
+          <button
+            onClick={() => setActiveFormTab('PENSION')}
+            className={`px-3 py-1.5 rounded-lg transition ${
+              activeFormTab === 'PENSION' ? 'bg-indigo-600 text-white shadow' : 'opacity-70 hover:opacity-100'
+            }`}
+          >
+            Pensions (NPS / SE)
           </button>
         </div>
       </div>
@@ -1228,6 +1246,161 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                     <tr>
                       <td colSpan={5} className="text-center py-8 opacity-60">
                         No liabilities or debts recorded.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* 5. Pension & Retirement Form & Table */}
+      {activeFormTab === 'PENSION' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div
+            className={`p-6 rounded-3xl border shadow-sm ${
+              isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+            }`}
+          >
+            <div className="flex items-center gap-2 mb-4">
+              <Landmark className="w-4 h-4 text-purple-400" />
+              <h3 className="text-sm font-bold">Add Pension / Retirement Account</h3>
+            </div>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                onAddPension(pensionForm);
+                setPensionForm({ ...pensionForm, name: '', valuation: 0 });
+              }}
+              className="space-y-3 text-xs"
+            >
+              <div>
+                <label className="block mb-1 opacity-70">Account / Plan Name</label>
+                <input
+                  type="text"
+                  required
+                  value={pensionForm.name}
+                  onChange={(e) => setPensionForm({ ...pensionForm, name: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl border bg-transparent"
+                  placeholder="e.g. Inkomstpension, NPS Tier-1, ITP1"
+                />
+              </div>
+
+              <div>
+                <label className="block mb-1 opacity-70">Provider / Manager</label>
+                <input
+                  type="text"
+                  required
+                  value={pensionForm.broker}
+                  onChange={(e) => setPensionForm({ ...pensionForm, broker: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl border bg-transparent"
+                  placeholder="e.g. Pensionsmyndigheten, NSDL/Protean, Alecta"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block mb-1 opacity-70">Currency</label>
+                  <select
+                    value={pensionForm.currency}
+                    onChange={(e) => setPensionForm({ ...pensionForm, currency: e.target.value as any })}
+                    className="w-full px-3 py-2 rounded-xl border bg-transparent"
+                  >
+                    <option value="SEK">SEK (Sweden)</option>
+                    <option value="INR">INR (India - NPS)</option>
+                    <option value="EUR">EUR</option>
+                    <option value="USD">USD</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block mb-1 opacity-70">Current Value</label>
+                  <input
+                    type="number"
+                    required
+                    value={pensionForm.valuation || ''}
+                    onChange={(e) =>
+                      setPensionForm({ ...pensionForm, valuation: parseFloat(e.target.value) || 0 })
+                    }
+                    className="w-full px-3 py-2 rounded-xl border bg-transparent"
+                    placeholder="150000"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                className="w-full py-2.5 bg-purple-600 hover:bg-purple-500 text-white rounded-xl font-bold transition flex items-center justify-center gap-1.5 shadow cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" /> Save Pension
+              </button>
+            </form>
+          </div>
+
+          <div
+            className={`lg:col-span-2 p-6 rounded-3xl border shadow-sm ${
+              isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+            }`}
+          >
+            <h3 className="text-sm font-bold mb-4">Retirement Accounts &amp; Pensions</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-slate-800/40 opacity-70">
+                    <th className="pb-2">Provider</th>
+                    <th className="pb-2">Plan Name</th>
+                    <th className="pb-2 text-right">Current Valuation</th>
+                    <th className="pb-2 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/20">
+                  {pensionHoldings.map((p) => {
+                    const displayVal = p.market_price > 0 ? p.market_price : p.principal || 0;
+                    return (
+                      <tr key={p.id} className="hover:bg-slate-800/10 transition">
+                        <td className="py-3 font-semibold">{p.broker}</td>
+                        <td className="py-3">{p.name}</td>
+                        <td className="py-3 text-right font-mono font-bold text-purple-400">
+                          {displayVal.toLocaleString()} {p.currency}
+                        </td>
+                        <td className="py-3 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            {onUpdateHoldingValuation && (
+                              <button
+                                onClick={() => {
+                                  const val = prompt(
+                                    `Update valuation for ${p.name}:`,
+                                    String(displayVal)
+                                  );
+                                  if (val !== null) {
+                                    const parsed = parseFloat(val);
+                                    if (!isNaN(parsed) && parsed >= 0) {
+                                      onUpdateHoldingValuation(p.id, parsed);
+                                    }
+                                  }
+                                }}
+                                className="px-2 py-1 rounded-lg bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 font-medium transition flex items-center gap-1 cursor-pointer"
+                                title="Update Valuation"
+                              >
+                                <Edit2 className="w-3.5 h-3.5" /> Edit
+                              </button>
+                            )}
+                            <button
+                              onClick={() => onDeleteHolding(p.id)}
+                              className="p-1 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 transition cursor-pointer"
+                              title="Delete Pension"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {pensionHoldings.length === 0 && (
+                    <tr>
+                      <td colSpan={4} className="text-center py-8 opacity-60">
+                        No pension or retirement accounts recorded.
                       </td>
                     </tr>
                   )}

@@ -830,6 +830,25 @@ export default function App() {
               await persistEncryptedVault(db);
               setStatusMsg(`Saved Liability: ${l.name}`);
             }}
+            onAddPension={async (p) => {
+              db.run(
+                `INSERT INTO holdings (broker, category, symbol, name, currency, quantity, avg_price, market_price, principal)
+                VALUES (?, 'PENSION', ?, ?, ?, 1, ?, ?, ?)
+                ON CONFLICT(broker, symbol) DO UPDATE SET market_price = excluded.market_price, updated_at = CURRENT_TIMESTAMP`,
+                [
+                  p.broker,
+                  `PENSION_${p.broker}_${p.name}`.replace(/\s+/g, '_').toUpperCase(),
+                  p.name,
+                  p.currency,
+                  p.valuation,
+                  p.valuation,
+                  p.valuation,
+                ]
+              );
+              await persistEncryptedVault(db);
+              refreshHoldings(db);
+              setStatusMsg(`Saved Pension: ${p.name}`);
+            }}
             onUpdatePropertyValuation={async (id, currentPrice) => {
               updatePropertyValuation(db, id, currentPrice);
               await persistEncryptedVault(db);

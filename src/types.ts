@@ -17,7 +17,7 @@ export type BrokerType =
 
 export type AuthMode = 'CREATE_OR_UNLOCK' | 'RESTORE_RETURNING';
 
-export type AssetCategory = 'EQUITY' | 'FIXED_DEPOSIT' | string;
+export type AssetCategory = 'EQUITY' | 'MUTUAL_FUND' | 'FIXED_DEPOSIT' | 'PENSION';
 
 export type PropertyType = 'Apartment' | 'House / Villa' | 'Plot / Land' | 'Commercial' | string;
 
