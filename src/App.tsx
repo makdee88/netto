@@ -3,6 +3,7 @@ import type { Database } from 'sql.js';
 import { Session, AuthChangeEvent } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 import {
+  initSectorTable,
   initDatabase,
   recordSnapshot,
   getProperties,
@@ -138,6 +139,10 @@ export default function App() {
               ? h.market_price > 0
                 ? h.market_price
                 : h.principal
+              : h.category === 'PENSION'
+              ? h.market_price > 0
+                ? h.market_price
+                : h.principal || 0
               : h.quantity * (h.market_price > 0 ? h.market_price : h.avg_price);
           return sum + (nativeVal * (fxRates[h.currency] || 1)) / (fxRates[baseCurrency] || 1);
         }, 0);
@@ -241,6 +246,7 @@ export default function App() {
         decryptSqliteBytes(base64ToUint8(savedBase64), cachedPass)
           .then((decrypted) => initDatabase(decrypted))
           .then((database) => {
+            initSectorTable(database);
             setPassphrase(cachedPass);
             setDb(database);
             refreshHoldings(database);
@@ -361,6 +367,7 @@ export default function App() {
       if (!restoreBytes) throw new Error('Select a .sqlite.enc file or pull from Google Drive first.');
       const decrypted = await decryptSqliteBytes(restoreBytes, passInput);
       const database = await initDatabase(decrypted);
+      initSectorTable(database);
       setPassphrase(passInput);
       setDb(database);
       sessionStorage.setItem(SESSION_PASS_PREFIX + activeVaultName, passInput);
@@ -375,6 +382,7 @@ export default function App() {
     if (savedBase64 && hasExistingVault) {
       const decrypted = await decryptSqliteBytes(base64ToUint8(savedBase64), passInput);
       const database = await initDatabase(decrypted);
+      initSectorTable(database);
       setPassphrase(passInput);
       setDb(database);
       sessionStorage.setItem(SESSION_PASS_PREFIX + activeVaultName, passInput);
@@ -384,6 +392,7 @@ export default function App() {
     } else {
       if (passInput !== passConfirm) throw new Error('Passphrases do not match.');
       const database = await initDatabase();
+      initSectorTable(database);
       setPassphrase(passInput);
       setDb(database);
       sessionStorage.setItem(SESSION_PASS_PREFIX + activeVaultName, passInput);
@@ -515,7 +524,7 @@ export default function App() {
     <div className={`min-h-screen ${isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
       {floatingBar}
 
-{/* Two-Line Balanced Dashboard Header */}
+      {/* Two-Line Balanced Dashboard Header */}
       <header
         className={`max-w-7xl mx-auto px-6 py-4 flex flex-col gap-3 border-b ${
           isDark ? 'border-slate-800 bg-slate-900/80' : 'border-slate-200 bg-white shadow-sm'
@@ -525,7 +534,6 @@ export default function App() {
         {/* LINE 1: Branding (Left) <---> Navigation Tabs (Right)     */}
         {/* ========================================================= */}
         <div className="flex items-center justify-between gap-4">
-          {/* Left: Branding & Vault Identity */}
           <div className="flex items-center gap-2.5">
             <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
               <ShieldCheck className="w-5 h-5" />
@@ -547,7 +555,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* Right: Overview / Manage Assets Switcher */}
           <div className="flex gap-1 bg-slate-950/20 p-1 rounded-xl text-xs font-semibold border border-slate-800/40">
             <button
               onClick={() => handleTabChange('OVERVIEW')}
@@ -572,7 +579,6 @@ export default function App() {
         {/* LINE 2: Action Buttons (Left) <---> Info & Controls (Right)*/}
         {/* ========================================================= */}
         <div className="w-full flex flex-wrap items-center justify-between gap-3 pt-2.5 border-t border-slate-800/30">
-          {/* Actions (Left): Prices, Currency, Save to Drive, Backup */}
           <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={async () => {
@@ -660,7 +666,6 @@ export default function App() {
             </button>
           </div>
 
-          {/* Informational & Security (Right): Privacy, Guide, Info, Passphrase, Theme, Lock */}
           <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={() => setIsMasked(!isMasked)}
@@ -830,7 +835,12 @@ export default function App() {
               await persistEncryptedVault(db);
               setStatusMsg(`Saved Liability: ${l.name}`);
             }}
-            onAddPension={async (p) => {
+            onAddPension={async (p: {
+              broker: string;
+              name: string;
+              currency: CurrencyCode;
+              valuation: number;
+            }) => {
               db.run(
                 `INSERT INTO holdings (broker, category, symbol, name, currency, quantity, avg_price, market_price, principal)
                 VALUES (?, 'PENSION', ?, ?, ?, 1, ?, ?, ?)

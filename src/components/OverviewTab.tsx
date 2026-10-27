@@ -11,6 +11,7 @@ import {
   Landmark,
   Layers,
   ShoppingBag,
+  Activity,
 } from 'lucide-react';
 import {
   calculateFDCurrentValue,
@@ -18,8 +19,9 @@ import {
   getLiabilities,
   getHistoricalPortfolioTimeline,
   getAllTransactions,
+  getAllHoldingSectors,
 } from '../db/database';
-import { CurrencyCode, HoldingRow, PropertyRow, LiabilityRow, TransactionRow } from '../types';
+import { CurrencyCode, HoldingRow, PropertyRow, LiabilityRow, TransactionRow, GicsSector } from '../types';
 import type { Database } from 'sql.js';
 
 interface OverviewTabProps {
@@ -55,6 +57,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
   const properties: PropertyRow[] = useMemo(() => getProperties(db), [db]);
   const liabilities: LiabilityRow[] = useMemo(() => getLiabilities(db), [db]);
   const allTransactions: TransactionRow[] = useMemo(() => getAllTransactions(db), [db]);
+  const sectorDatabaseMap = useMemo(() => getAllHoldingSectors(db), [db]);
 
   const formatVal = (amount: number, currency: string = baseCurrency) => {
     if (isMasked) return '••••••';
@@ -107,7 +110,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
   const netWorth = totalAssets - totalLiabilities;
   const debtToAssetRatio = totalAssets > 0 ? (totalLiabilities / totalAssets) * 100 : 0;
 
-  // 1. 5-Way Segregated Gross Asset Breakdown
+  // 1. 5-Way Segregated Asset Class Allocation
   const assetBreakdown: Record<string, number> = {
     'Individual Equities': holdingsWithValues
       .filter((h) => h.category === 'EQUITY')
@@ -139,6 +142,32 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
 
     return Object.entries(summary).sort((a, b) => b[1] - a[1]);
   }, [holdingsWithValues, totalRealEstate]);
+
+  // 3. Look-through Sector Allocation for Equities & Funds
+  const { sectorSummary, totalEquityAndFundVal } = useMemo(() => {
+    const summary: Record<string, number> = {};
+    let totalVal = 0;
+
+    holdingsWithValues
+      .filter((h) => h.category === 'EQUITY' || h.category === 'MUTUAL_FUND')
+      .forEach((h) => {
+        totalVal += h.baseVal;
+        const weights = sectorDatabaseMap[h.symbol];
+
+        if (weights && weights.length > 0) {
+          weights.forEach((w) => {
+            const allocated = h.baseVal * (w.weight_pct / 100);
+            summary[w.sector] = (summary[w.sector] || 0) + allocated;
+          });
+        } else {
+          const fallback = 'Other / Unclassified';
+          summary[fallback] = (summary[fallback] || 0) + h.baseVal;
+        }
+      });
+
+    const sorted = Object.entries(summary).sort((a, b) => b[1] - a[1]);
+    return { sectorSummary: sorted, totalEquityAndFundVal: totalVal };
+  }, [holdingsWithValues, sectorDatabaseMap]);
 
   const fullTimeline = getHistoricalPortfolioTimeline(
     db,
@@ -277,7 +306,6 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
 
       {/* 2. Growth Chart & 5-Way Segregated Asset Class Allocation */}
       <div className="grid md:grid-cols-3 gap-6">
-        {/* Left: Portfolio Growth Chart */}
         <div className={`md:col-span-2 border p-6 rounded-2xl space-y-4 shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
@@ -494,7 +522,6 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
           )}
         </div>
 
-        {/* Right: 5-Way Segregated Gross Asset Allocation */}
         <div className={`border p-6 rounded-2xl space-y-4 shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
           <div className="flex items-center gap-2">
             <PieChart className="w-5 h-5 text-emerald-500" />
@@ -583,7 +610,45 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         </div>
       </div>
 
-      {/* 4. Stock / Fund Concentration (Top Holdings) */}
+      {/* 4. Look-Through Sector Exposure Breakdown */}
+      <div className={`border p-6 rounded-2xl space-y-4 shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Activity className="w-5 h-5 text-purple-400" />
+            <h2 className="font-bold text-base">Equity &amp; Fund Sector Exposure</h2>
+          </div>
+          <span className="text-xs opacity-60 font-mono">
+            Across {formatVal(totalEquityAndFundVal)} Equities/Funds
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-3 pt-1">
+          {sectorSummary.map(([sector, val]) => {
+            const pct = totalEquityAndFundVal > 0 ? (val / totalEquityAndFundVal) * 100 : 0;
+            return (
+              <div key={sector} className="space-y-1 text-xs">
+                <div className="flex justify-between font-medium">
+                  <span className="truncate">{sector}</span>
+                  <span className="font-mono">
+                    {formatVal(val)} ({pct.toFixed(1)}%)
+                  </span>
+                </div>
+                <div className={`w-full h-2 rounded-full overflow-hidden ${isDark ? 'bg-slate-950' : 'bg-slate-100'}`}>
+                  <div style={{ width: `${pct}%` }} className="h-full rounded-full bg-purple-500 transition-all duration-500" />
+                </div>
+              </div>
+            );
+          })}
+
+          {sectorSummary.length === 0 && (
+            <div className="col-span-full text-center py-6 text-xs opacity-60">
+              No stock or fund sector data available. Use Manage Assets &gt; Edit Sector Breakdown.
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* 5. Stock / Fund Concentration (Top Holdings) */}
       <div className={`border p-6 rounded-2xl space-y-4 shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -623,9 +688,8 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         </div>
       </div>
 
-      {/* 5. Additional Analytics Row: Currency Exposure (Left) & Upcoming FD Maturities (Right) */}
+      {/* 6. Additional Analytics Row: Multi-Currency & FD Maturities */}
       <div className="grid md:grid-cols-2 gap-6">
-        {/* Left: Multi-Currency Exposure */}
         <div className={`border p-6 rounded-2xl space-y-4 shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
           <div className="flex items-center gap-2">
             <Globe2 className="w-5 h-5 text-sky-500" />
@@ -653,7 +717,6 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
           </div>
         </div>
 
-        {/* Right: Upcoming FD Maturities (Nearest 3 Only) */}
         <div className={`border p-6 rounded-2xl space-y-4 shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -721,7 +784,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         </div>
       </div>
 
-      {/* 6. Consolidated Portfolio Holdings Table */}
+      {/* 7. Consolidated Portfolio Holdings Table */}
       <div className={`border rounded-2xl overflow-hidden shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
         <div className={`p-4 border-b flex justify-between items-center ${isDark ? 'border-slate-800' : 'border-slate-200'}`}>
           <h3 className="font-bold text-sm">Consolidated Portfolio Holdings (Live Valuation)</h3>
@@ -813,7 +876,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         </table>
       </div>
 
-      {/* 7. Real Estate Properties Table */}
+      {/* 8. Properties Table */}
       <div className={`border rounded-2xl overflow-hidden shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
         <div className={`p-4 border-b flex justify-between items-center ${isDark ? 'border-slate-800' : 'border-slate-200'}`}>
           <div className="flex items-center gap-2">
@@ -868,7 +931,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         </table>
       </div>
 
-      {/* 8. Liabilities & Loans Table */}
+      {/* 9. Liabilities Table */}
       <div className={`border rounded-2xl overflow-hidden shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
         <div className={`p-4 border-b flex justify-between items-center ${isDark ? 'border-slate-800' : 'border-slate-200'}`}>
           <div className="flex items-center gap-2">

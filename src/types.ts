@@ -158,3 +158,25 @@ declare global {
     };
   }
 }
+
+export const GICS_SECTORS = [
+  'Technology',
+  'Financials',
+  'Healthcare',
+  'Consumer Discretionary',
+  'Consumer Staples',
+  'Industrials',
+  'Energy',
+  'Utilities',
+  'Materials',
+  'Real Estate',
+  'Communication Services',
+  'Other / Unclassified',
+] as const;
+
+export type GicsSector = typeof GICS_SECTORS[number];
+
+export interface SectorWeight {
+  sector: GicsSector;
+  weight_pct: number;
+}

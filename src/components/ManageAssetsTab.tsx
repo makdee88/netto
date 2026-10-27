@@ -1,6 +1,14 @@
 import React, { useState, useRef } from 'react';
 import type { Database } from 'sql.js';
-import { HoldingRow, CurrencyCode, BrokerType, CsvImportResult } from '../types';
+import {
+  HoldingRow,
+  CurrencyCode,
+  BrokerType,
+  CsvImportResult,
+  GICS_SECTORS,
+  GicsSector,
+  SectorWeight,
+} from '../types';
 import {
   FileSpreadsheet,
   Trash2,
@@ -16,8 +24,14 @@ import {
   ClipboardPaste,
   X,
   CheckCircle2,
+  PieChart,
 } from 'lucide-react';
-import { getProperties, getLiabilities } from '../db/database';
+import {
+  getProperties,
+  getLiabilities,
+  getHoldingSectors,
+  saveHoldingSectors,
+} from '../db/database';
 import { BrokerGuide } from './BrokerGuide';
 import { parsePastedFdRows, ParsedFdItem } from '../parsers/fdImporter';
 import { calculateFdValuation } from '../utils/finance';
@@ -119,6 +133,14 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
   const [previewFdItems, setPreviewFdItems] = useState<ParsedFdItem[]>([]);
   const [isSavingBulk, setIsSavingBulk] = useState<boolean>(false);
 
+  // Sector Breakdown Editor Modal State
+  const [editingSectorHolding, setEditingSectorHolding] = useState<HoldingRow | null>(null);
+  const [sectorWeights, setSectorWeights] = useState<Record<GicsSector, number>>(() => {
+    const init = {} as Record<GicsSector, number>;
+    GICS_SECTORS.forEach((s) => (init[s] = 0));
+    return init;
+  });
+
   // Fixed Deposit Form
   const [fdForm, setFdForm] = useState({
     name: '',
@@ -152,9 +174,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
     interest_rate: 3.5,
   });
 
-  const pensionHoldings = holdings.filter((h) => h.category === 'PENSION');
-
-  // Pension Form state
+  // Pension Form
   const [pensionForm, setPensionForm] = useState({
     name: '',
     broker: 'Pensionsmyndigheten',
@@ -164,6 +184,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
 
   const equityHoldings = holdings.filter((h) => h.category === 'EQUITY' || h.category === 'MUTUAL_FUND');
   const fdHoldings = holdings.filter((h) => h.category === 'FIXED_DEPOSIT');
+  const pensionHoldings = holdings.filter((h) => h.category === 'PENSION');
 
   const formatCompoundingLabel = (freq: number) => {
     if (freq === 12) return 'Monthly';
@@ -193,20 +214,51 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
     }
   };
 
+  const openSectorEditor = (h: HoldingRow) => {
+    setEditingSectorHolding(h);
+    const existing = getHoldingSectors(db, h.symbol);
+    const initialWeights = {} as Record<GicsSector, number>;
+    GICS_SECTORS.forEach((s) => (initialWeights[s] = 0));
+
+    if (existing.length > 0) {
+      existing.forEach((item) => {
+        initialWeights[item.sector] = item.weight_pct;
+      });
+    } else {
+      initialWeights['Other / Unclassified'] = 100;
+    }
+    setSectorWeights(initialWeights);
+  };
+
+  const totalSectorPct = Object.values(sectorWeights).reduce((sum, v) => sum + (Number(v) || 0), 0);
+
+  const handleSaveSectors = () => {
+    if (!editingSectorHolding) return;
+    const payload: SectorWeight[] = Object.entries(sectorWeights)
+      .filter(([_, weight]) => weight > 0)
+      .map(([sec, weight]) => ({
+        sector: sec as GicsSector,
+        weight_pct: Number(weight),
+      }));
+
+    saveHoldingSectors(db, editingSectorHolding.symbol, payload);
+    setEditingSectorHolding(null);
+  };
+
   return (
     <div className="space-y-8 animate-in fade-in">
       {/* Top Navigation */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <button
           onClick={onBackToOverview}
-          className="flex items-center gap-1.5 text-xs font-semibold opacity-70 hover:opacity-100 transition"
+          className="flex items-center gap-1.5 text-xs font-semibold opacity-70 hover:opacity-100 transition cursor-pointer"
         >
           <ArrowLeft className="w-4 h-4" /> Back to Overview
         </button>
-        <div className="flex items-center gap-1 bg-slate-950/20 p-1 rounded-xl text-xs font-semibold">
+        <div className="flex flex-wrap items-center gap-1 bg-slate-950/20 p-1 rounded-xl text-xs font-semibold">
           <button
             onClick={() => setActiveFormTab('EQUITY')}
-            className={`px-3 py-1.5 rounded-lg transition ${
+            className={`px-3 py-1.5 rounded-lg transition cursor-pointer ${
               activeFormTab === 'EQUITY' ? 'bg-indigo-600 text-white shadow' : 'opacity-70 hover:opacity-100'
             }`}
           >
@@ -214,7 +266,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
           </button>
           <button
             onClick={() => setActiveFormTab('FD')}
-            className={`px-3 py-1.5 rounded-lg transition ${
+            className={`px-3 py-1.5 rounded-lg transition cursor-pointer ${
               activeFormTab === 'FD' ? 'bg-indigo-600 text-white shadow' : 'opacity-70 hover:opacity-100'
             }`}
           >
@@ -222,7 +274,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
           </button>
           <button
             onClick={() => setActiveFormTab('PROPERTY')}
-            className={`px-3 py-1.5 rounded-lg transition ${
+            className={`px-3 py-1.5 rounded-lg transition cursor-pointer ${
               activeFormTab === 'PROPERTY' ? 'bg-indigo-600 text-white shadow' : 'opacity-70 hover:opacity-100'
             }`}
           >
@@ -230,15 +282,15 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
           </button>
           <button
             onClick={() => setActiveFormTab('LIABILITY')}
-            className={`px-3 py-1.5 rounded-lg transition ${
+            className={`px-3 py-1.5 rounded-lg transition cursor-pointer ${
               activeFormTab === 'LIABILITY' ? 'bg-indigo-600 text-white shadow' : 'opacity-70 hover:opacity-100'
             }`}
           >
-            Loans & Mortgages
+            Loans &amp; Mortgages
           </button>
           <button
             onClick={() => setActiveFormTab('PENSION')}
-            className={`px-3 py-1.5 rounded-lg transition ${
+            className={`px-3 py-1.5 rounded-lg transition cursor-pointer ${
               activeFormTab === 'PENSION' ? 'bg-indigo-600 text-white shadow' : 'opacity-70 hover:opacity-100'
             }`}
           >
@@ -327,7 +379,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                     setCsvSummary(null);
                   }
                 }}
-                className="p-2 border border-rose-500/30 text-rose-400 hover:bg-rose-500/10 rounded-xl text-xs font-semibold transition"
+                className="p-2 border border-rose-500/30 text-rose-400 hover:bg-rose-500/10 rounded-xl text-xs font-semibold transition cursor-pointer"
                 title={`Clear ${selectedBroker} Ledger`}
               >
                 <Trash2 className="w-4 h-4" />
@@ -335,10 +387,8 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
             </div>
           </div>
 
-          {/* Broker Export Guide */}
           <BrokerGuide broker={selectedBroker} isDark={isDark} />
 
-          {/* Interactive Loading / Summary Box */}
           {(isUploading || csvSummary || uploadStatus) && (
             <div
               className={`mb-6 p-4 rounded-2xl border text-xs transition-all ${
@@ -370,7 +420,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                 {csvSummary && (
                   <button
                     onClick={() => setCsvSummary(null)}
-                    className="opacity-70 hover:opacity-100 text-[10px] underline"
+                    className="opacity-70 hover:opacity-100 text-[10px] underline cursor-pointer"
                   >
                     Dismiss
                   </button>
@@ -400,7 +450,6 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
             </div>
           )}
 
-          {/* Tradebook vs Holdings Snapshot Guide */}
           <div className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
             <div
               className={`p-4 rounded-2xl border ${
@@ -424,7 +473,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                 <ShieldCheck className="w-4 h-4" /> Holdings Snapshot (Current Position)
               </div>
               <p className="opacity-80 leading-relaxed">
-                Used when historical trade logs aren't available. Netto displays current open holdings and synthesizes baseline opening transactions.
+                Used when historical trade logs aren&apos;t available. Netto displays current open holdings and synthesizes baseline opening transactions.
               </p>
             </div>
           </div>
@@ -471,6 +520,13 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                         {h.market_price && h.market_price > 0 ? `${h.market_price.toFixed(2)} ${h.currency || 'SEK'}` : '-'}
                       </td>
                       <td className="py-3 text-right flex items-center justify-end gap-1">
+                        <button
+                          onClick={() => openSectorEditor(h)}
+                          className="text-purple-400 hover:text-purple-300 p-1 cursor-pointer transition"
+                          title="Edit Sector Breakdown"
+                        >
+                          <PieChart className="w-3.5 h-3.5" />
+                        </button>
                         {onUpdateHoldingValuation && (
                           <button
                             onClick={() => {
@@ -485,7 +541,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                                 }
                               }
                             }}
-                            className="text-indigo-400 hover:text-indigo-300 p-1"
+                            className="text-indigo-400 hover:text-indigo-300 p-1 cursor-pointer"
                             title="Update Market Price"
                           >
                             <Edit2 className="w-3.5 h-3.5" />
@@ -493,7 +549,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                         )}
                         <button
                           onClick={() => onDeleteHolding(h.id)}
-                          className="text-rose-400 hover:text-rose-300 p-1 rounded-lg hover:bg-rose-500/10 transition"
+                          className="text-rose-400 hover:text-rose-300 p-1 rounded-lg hover:bg-rose-500/10 transition cursor-pointer"
                           title="Delete Asset"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -515,7 +571,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
         </div>
       )}
 
-      {/* 2. Fixed Deposits Form & Table */}
+      {/* 2. Fixed Deposits Section */}
       {activeFormTab === 'FD' && (
         <div className="space-y-6">
           <div className="flex items-center justify-between">
@@ -715,24 +771,26 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                           </td>
                           <td className="py-3 text-right font-mono opacity-80">{fd.maturity_date || '-'}</td>
                           <td className="py-3 text-right flex items-center justify-end gap-1">
-                            <button
-                              onClick={() => {
-                                const valPrompt = prompt(
-                                  `Update principal balance for ${fd.name}:`,
-                                  String(fd.principal)
-                                );
-                                if (valPrompt !== null) {
-                                  const parsed = parseFloat(valPrompt);
-                                  if (!isNaN(parsed) && parsed > 0 && onUpdateHoldingValuation) {
-                                    onUpdateHoldingValuation(fd.id, parsed);
+                            {onUpdateHoldingValuation && (
+                              <button
+                                onClick={() => {
+                                  const valPrompt = prompt(
+                                    `Update principal balance for ${fd.name}:`,
+                                    String(fd.principal)
+                                  );
+                                  if (valPrompt !== null) {
+                                    const parsed = parseFloat(valPrompt);
+                                    if (!isNaN(parsed) && parsed > 0) {
+                                      onUpdateHoldingValuation(fd.id, parsed);
+                                    }
                                   }
-                                }
-                              }}
-                              className="text-indigo-400 hover:text-indigo-300 p-1 cursor-pointer"
-                              title="Update Principal"
-                            >
-                              <Edit2 className="w-3.5 h-3.5" />
-                            </button>
+                                }}
+                                className="text-indigo-400 hover:text-indigo-300 p-1 cursor-pointer"
+                                title="Update Principal"
+                              >
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                             <button
                               onClick={() => onDeleteHolding(fd.id)}
                               className="text-rose-400 hover:text-rose-300 p-1 cursor-pointer"
@@ -759,117 +817,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
         </div>
       )}
 
-      {/* Quick Paste Modal */}
-      {showFdPasteModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
-          <div
-            className={`w-full max-w-4xl rounded-3xl p-6 sm:p-8 shadow-2xl border space-y-4 max-h-[90vh] overflow-y-auto ${
-              isDark ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
-            }`}
-          >
-            <div className="flex items-center justify-between border-b border-slate-800/20 pb-3">
-              <div>
-                <h3 className="text-sm font-bold flex items-center gap-2 text-emerald-400">
-                  <ClipboardPaste className="w-4 h-4" /> Quick Paste Fixed Deposits
-                </h3>
-                <p className="text-[11px] opacity-70 mt-0.5">
-                  Copy rows directly from Excel, Google Sheets, or your online banking table and paste them below.
-                </p>
-              </div>
-              <button
-                onClick={() => {
-                  setShowFdPasteModal(false);
-                  setPastedRawText('');
-                  setPreviewFdItems([]);
-                }}
-                className="opacity-70 hover:opacity-100 p-1 cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between text-[11px] opacity-70 mb-1">
-                <span>
-                  <strong>Supported column order:</strong> Bank | Deposit Name | Principal | Rate % | Currency | Start Date | Maturity Date
-                </span>
-                <span className="font-mono text-emerald-400 font-bold">{previewFdItems.length} recognized</span>
-              </div>
-              <textarea
-                rows={5}
-                value={pastedRawText}
-                onChange={(e) => handleProcessPastedText(e.target.value)}
-                placeholder={'SBAB\tFasträntekonto 1Y\t100000\t3.75\tSEK\t2026-01-15\t2027-01-15\nHDFC\tTax Saver FD\t50000\t7.10\tINR\t2025-05-10\t2030-05-10'}
-                className={`w-full p-3 rounded-2xl border font-mono text-xs outline-none ${
-                  isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300'
-                }`}
-              />
-            </div>
-
-            {/* Preview Table with Start Date */}
-            {previewFdItems.length > 0 && (
-              <div className="space-y-2">
-                <span className="text-[11px] font-bold text-indigo-400 uppercase tracking-wider">
-                  Data Preview ({previewFdItems.length} deposits detected)
-                </span>
-                <div className="overflow-x-auto rounded-xl border border-slate-800/20 max-h-52">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-950/20">
-                      <tr className="opacity-70 border-b border-slate-800/30">
-                        <th className="p-2">Bank</th>
-                        <th className="p-2">Deposit Name</th>
-                        <th className="p-2 text-right">Principal</th>
-                        <th className="p-2 text-right">Rate</th>
-                        <th className="p-2">Currency</th>
-                        <th className="p-2">Start Date</th>
-                        <th className="p-2">Maturity Date</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-800/20 font-mono">
-                      {previewFdItems.map((item, idx) => (
-                        <tr key={idx} className="hover:bg-slate-800/10">
-                          <td className="p-2 font-semibold">{item.broker}</td>
-                          <td className="p-2">{item.name}</td>
-                          <td className="p-2 text-right font-medium">
-                            {item.principal.toLocaleString()}
-                          </td>
-                          <td className="p-2 text-right text-emerald-400">{item.interestRate}%</td>
-                          <td className="p-2">{item.currency}</td>
-                          <td className="p-2 text-indigo-400">{item.startDate}</td>
-                          <td className="p-2 opacity-80">{item.maturityDate || '-'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-800/20">
-              <button
-                onClick={() => {
-                  setShowFdPasteModal(false);
-                  setPastedRawText('');
-                  setPreviewFdItems([]);
-                }}
-                className="px-4 py-2 rounded-xl text-xs font-semibold opacity-70 hover:opacity-100 cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                disabled={previewFdItems.length === 0 || isSavingBulk}
-                onClick={handleSaveBulkFds}
-                className="flex items-center gap-1.5 px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-bold text-xs shadow transition cursor-pointer"
-              >
-                <CheckCircle2 className="w-4 h-4" />
-                {isSavingBulk ? 'Saving & Encrypting...' : `Save ${previewFdItems.length} Deposits`}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 3. Real Estate / Properties Form & Table */}
+      {/* 3. Real Estate / Properties Section */}
       {activeFormTab === 'PROPERTY' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div
@@ -1076,7 +1024,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
         </div>
       )}
 
-      {/* 4. Liabilities / Loans Form & Table */}
+      {/* 4. Liabilities / Loans Section */}
       {activeFormTab === 'LIABILITY' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div
@@ -1262,7 +1210,8 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
           </div>
         </div>
       )}
-      {/* 5. Pension & Retirement Form & Table */}
+
+      {/* 5. Pension & Retirement Section */}
       {activeFormTab === 'PENSION' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div
@@ -1413,6 +1362,224 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                   )}
                 </tbody>
               </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Quick Paste Modal for Fixed Deposits */}
+      {showFdPasteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+          <div
+            className={`w-full max-w-4xl rounded-3xl p-6 sm:p-8 shadow-2xl border space-y-4 max-h-[90vh] overflow-y-auto ${
+              isDark ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
+            }`}
+          >
+            <div className="flex items-center justify-between border-b border-slate-800/20 pb-3">
+              <div>
+                <h3 className="text-sm font-bold flex items-center gap-2 text-emerald-400">
+                  <ClipboardPaste className="w-4 h-4" /> Quick Paste Fixed Deposits
+                </h3>
+                <p className="text-[11px] opacity-70 mt-0.5">
+                  Copy rows directly from Excel, Google Sheets, or your online banking table and paste them below.
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setShowFdPasteModal(false);
+                  setPastedRawText('');
+                  setPreviewFdItems([]);
+                }}
+                className="opacity-70 hover:opacity-100 p-1 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between text-[11px] opacity-70 mb-1">
+                <span>
+                  <strong>Supported column order:</strong> Bank | Deposit Name | Principal | Rate % | Currency | Start Date | Maturity Date
+                </span>
+                <span className="font-mono text-emerald-400 font-bold">{previewFdItems.length} recognized</span>
+              </div>
+              <textarea
+                rows={5}
+                value={pastedRawText}
+                onChange={(e) => handleProcessPastedText(e.target.value)}
+                placeholder={'SBAB\tFasträntekonto 1Y\t100000\t3.75\tSEK\t2026-01-15\t2027-01-15\nHDFC\tTax Saver FD\t50000\t7.10\tINR\t2025-05-10\t2030-05-10'}
+                className={`w-full p-3 rounded-2xl border font-mono text-xs outline-none ${
+                  isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300'
+                }`}
+              />
+            </div>
+
+            {previewFdItems.length > 0 && (
+              <div className="space-y-2">
+                <span className="text-[11px] font-bold text-indigo-400 uppercase tracking-wider">
+                  Data Preview ({previewFdItems.length} deposits detected)
+                </span>
+                <div className="overflow-x-auto rounded-xl border border-slate-800/20 max-h-52">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-950/20">
+                      <tr className="opacity-70 border-b border-slate-800/30">
+                        <th className="p-2">Bank</th>
+                        <th className="p-2">Deposit Name</th>
+                        <th className="p-2 text-right">Principal</th>
+                        <th className="p-2 text-right">Rate</th>
+                        <th className="p-2">Currency</th>
+                        <th className="p-2">Start Date</th>
+                        <th className="p-2">Maturity Date</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/20 font-mono">
+                      {previewFdItems.map((item, idx) => (
+                        <tr key={idx} className="hover:bg-slate-800/10">
+                          <td className="p-2 font-semibold">{item.broker}</td>
+                          <td className="p-2">{item.name}</td>
+                          <td className="p-2 text-right font-medium">
+                            {item.principal.toLocaleString()}
+                          </td>
+                          <td className="p-2 text-right text-emerald-400">{item.interestRate}%</td>
+                          <td className="p-2">{item.currency}</td>
+                          <td className="p-2 text-indigo-400">{item.startDate}</td>
+                          <td className="p-2 opacity-80">{item.maturityDate || '-'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-800/20">
+              <button
+                onClick={() => {
+                  setShowFdPasteModal(false);
+                  setPastedRawText('');
+                  setPreviewFdItems([]);
+                }}
+                className="px-4 py-2 rounded-xl text-xs font-semibold opacity-70 hover:opacity-100 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={previewFdItems.length === 0 || isSavingBulk}
+                onClick={handleSaveBulkFds}
+                className="flex items-center gap-1.5 px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-bold text-xs shadow transition cursor-pointer"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                {isSavingBulk ? 'Saving & Encrypting...' : `Save ${previewFdItems.length} Deposits`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Sector Breakdown Modal */}
+      {editingSectorHolding && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+          <div
+            className={`w-full max-w-xl rounded-3xl p-6 shadow-2xl border space-y-4 max-h-[90vh] flex flex-col ${
+              isDark ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
+            }`}
+          >
+            <div className="flex items-center justify-between border-b border-slate-800/20 pb-3">
+              <div>
+                <h3 className="text-sm font-bold flex items-center gap-2 text-purple-400">
+                  <PieChart className="w-4 h-4" /> Sector Breakdown: {editingSectorHolding.name}
+                </h3>
+                <p className="text-[11px] opacity-70 font-mono mt-0.5">
+                  {editingSectorHolding.symbol} • Total must equal 100%
+                </p>
+              </div>
+              <button
+                onClick={() => setEditingSectorHolding(null)}
+                className="opacity-70 hover:opacity-100 p-1 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div>
+              <span className="text-[10px] uppercase font-bold opacity-60 block mb-1.5">
+                Quick 100% Allocation (Single Stock):
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {GICS_SECTORS.slice(0, 6).map((sec) => (
+                  <button
+                    key={sec}
+                    type="button"
+                    onClick={() => {
+                      const reset = {} as Record<GicsSector, number>;
+                      GICS_SECTORS.forEach((s) => (reset[s] = s === sec ? 100 : 0));
+                      setSectorWeights(reset);
+                    }}
+                    className="px-2 py-1 rounded-lg border border-slate-700/50 text-[10px] hover:bg-purple-600 hover:text-white transition cursor-pointer"
+                  >
+                    100% {sec}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-2 pr-1 max-h-72">
+              {GICS_SECTORS.map((sector) => (
+                <div
+                  key={sector}
+                  className={`flex items-center justify-between p-2 rounded-xl border text-xs ${
+                    isDark ? 'bg-slate-950/40 border-slate-800' : 'bg-slate-50 border-slate-200'
+                  }`}
+                >
+                  <span className="font-medium">{sector}</span>
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.1"
+                      value={sectorWeights[sector] || ''}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value) || 0;
+                        setSectorWeights((prev) => ({
+                          ...prev,
+                          [sector]: val,
+                        }));
+                      }}
+                      className="w-16 px-2 py-1 rounded-lg border text-right font-mono text-xs bg-transparent"
+                      placeholder="0"
+                    />
+                    <span className="font-mono opacity-60">%</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="pt-3 border-t border-slate-800/20 space-y-3">
+              <div className="flex items-center justify-between text-xs font-mono font-bold">
+                <span>Total Allocated:</span>
+                <span className={Math.abs(totalSectorPct - 100) < 0.1 ? 'text-emerald-400' : 'text-rose-400'}>
+                  {totalSectorPct.toFixed(1)}% / 100%
+                </span>
+              </div>
+
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingSectorHolding(null)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold opacity-70 hover:opacity-100 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={Math.abs(totalSectorPct - 100) > 0.1}
+                  onClick={handleSaveSectors}
+                  className="px-5 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white font-bold text-xs shadow transition cursor-pointer"
+                >
+                  Save Sector Split
+                </button>
+              </div>
             </div>
           </div>
         </div>

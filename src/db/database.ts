@@ -73,6 +73,14 @@ const SCHEMA = `
     total_liabilities_sek REAL NOT NULL,
     net_worth_sek REAL NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS holding_sectors (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  symbol TEXT NOT NULL,
+  sector TEXT NOT NULL,
+  weight_pct REAL NOT NULL, -- e.g. 25.5 for 25.5%
+  UNIQUE(symbol, sector)
+  );
 `;
 
 export async function initDatabase(savedBytes?: Uint8Array): Promise<Database> {
@@ -644,3 +652,42 @@ export function updateHoldingValuation(db: Database, id: number, marketPrice: nu
     [marketPrice, id]
   );
 }
+
+export const initSectorTable = (db: Database) => {
+  db.run(`
+    CREATE TABLE IF NOT EXISTS holding_sectors (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      symbol TEXT NOT NULL,
+      sector TEXT NOT NULL,
+      weight_pct REAL NOT NULL,
+      UNIQUE(symbol, sector)
+    );
+  `);
+};
+
+export const getHoldingSectors = (db: Database, symbol: string): SectorWeight[] => {
+  try {
+    const res = db.exec(`SELECT sector, weight_pct FROM holding_sectors WHERE symbol = ?`, [symbol]);
+    if (!res || res.length === 0) return [];
+    return res[0].values.map((row) => ({
+      sector: row[0] as GicsSector,
+      weight_pct: Number(row[1]),
+    }));
+  } catch {
+    return [];
+  }
+};
+
+export const saveHoldingSectors = (db: Database, symbol: string, sectors: SectorWeight[]) => {
+  db.run(`BEGIN TRANSACTION`);
+  db.run(`DELETE FROM holding_sectors WHERE symbol = ?`, [symbol]);
+  for (const s of sectors) {
+    if (s.weight_pct > 0) {
+      db.run(
+        `INSERT INTO holding_sectors (symbol, sector, weight_pct) VALUES (?, ?, ?)`,
+        [symbol, s.sector, s.weight_pct]
+      );
+    }
+  }
+  db.run(`COMMIT`);
+};
