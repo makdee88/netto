@@ -94,6 +94,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
   onAddBulkFDs,
   onAddProperty,
   onAddLiability,
+  onAddPension,
   onUpdatePropertyValuation,
   onUpdateLiabilityBalance,
   onUpdateHoldingValuation,
