@@ -10,6 +10,8 @@ import {
   CreditCard,
   Upload,
   ArrowLeft,
+  FileText,
+  ShieldCheck,
 } from 'lucide-react';
 import { getProperties, getLiabilities } from '../db/database';
 import { BrokerGuide } from './BrokerGuide';
@@ -120,7 +122,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
     interest_rate: 3.5,
   });
 
-  const equityHoldings = holdings.filter((h) => h.category === 'EQUITY');
+  const equityHoldings = holdings.filter((h) => h.category === 'EQUITY' || h.category === 'MUTUAL_FUND');
   const fdHoldings = holdings.filter((h) => h.category === 'FIXED_DEPOSIT');
 
   const formatCompoundingLabel = (freq: number) => {
@@ -190,7 +192,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                 <h3 className="text-base font-bold">Broker Ledger Import</h3>
               </div>
               <p className={`text-xs mt-1 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
-                Select your broker below to view export instructions and upload your CSV or Excel (.xlsx) report.
+                Select your broker below to view export instructions and upload your report.
               </p>
             </div>
 
@@ -255,7 +257,29 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
             </div>
           </div>
 
+          {/* Broker Export Guide */}
           <BrokerGuide broker={selectedBroker} isDark={isDark} />
+
+          {/* Clarification Guidance: Tradebook vs Holdings Snapshot */}
+          <div className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+            <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-950/40 border-slate-800' : 'bg-indigo-50/50 border-indigo-100'}`}>
+              <div className="flex items-center gap-2 font-bold text-indigo-400 mb-1">
+                <FileText className="w-4 h-4" /> Tradebook (Full History)
+              </div>
+              <p className="opacity-80 leading-relaxed">
+                Contains complete buy/sell execution history. Enables exact realized P&amp;L tracking, historical XIRR, and multi-year analytics.
+              </p>
+            </div>
+
+            <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-950/40 border-slate-800' : 'bg-amber-50/50 border-amber-100'}`}>
+              <div className="flex items-center gap-2 font-bold text-amber-400 mb-1">
+                <ShieldCheck className="w-4 h-4" /> Holdings Snapshot (Current Position)
+              </div>
+              <p className="opacity-80 leading-relaxed">
+                Used when historical trade logs aren't available. Netto displays current open holdings and synthesizes baseline opening transactions.
+              </p>
+            </div>
+          </div>
 
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
@@ -263,7 +287,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                 <tr className="border-b border-slate-800/40 opacity-70">
                   <th className="pb-3">Broker</th>
                   <th className="pb-3">Asset / Name</th>
-                  <th className="pb-3">ISIN</th>
+                  <th className="pb-3">Data Source</th>
                   <th className="pb-3 text-right">Quantity</th>
                   <th className="pb-3 text-right">Avg Purchase Price</th>
                   <th className="pb-3 text-right">Current Market Price</th>
@@ -278,13 +302,17 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                       <div className="font-semibold">{h.name}</div>
                       <div className="text-[10px] opacity-60 font-mono">{h.symbol}</div>
                     </td>
-                    <td className="py-3 font-mono text-[10px] opacity-75">{h.isin || '-'}</td>
+                    <td className="py-3">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                        Holdings Snapshot
+                      </span>
+                    </td>
                     <td className="py-3 text-right font-medium">{h.quantity}</td>
                     <td className="py-3 text-right font-mono">
                       {h.avg_price.toFixed(2)} {h.currency}
                     </td>
                     <td className="py-3 text-right font-mono">
-                      {h.market_price > 0 ? `${h.market_price.toFixed(2)} ${h.currency}` : '-'}
+                      {h.market_price > 0 ? `${h.market_price.toFixed(2)} {h.currency}` : '-'}
                     </td>
                     <td className="py-3 text-right">
                       <button
