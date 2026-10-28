@@ -3,6 +3,7 @@ import type { Database } from 'sql.js';
 
 export async function parseZerodhaExcel(
   file: File,
+  brokerName: string,
   db: Database
 ): Promise<CsvImportResult> {
   const XLSX = await import('xlsx');
@@ -17,8 +18,8 @@ export async function parseZerodhaExcel(
   db.run('BEGIN TRANSACTION');
 
   try {
-    // Clear existing Zerodha holdings
-    db.run(`DELETE FROM holdings WHERE broker = 'Zerodha'`);
+    // Clear existing holdings strictly for this broker/account key (e.g. S-Zerodha)
+    db.run(`DELETE FROM holdings WHERE broker = ?`, [brokerName]);
 
     const today = new Date().toISOString().slice(0, 10);
 
@@ -45,11 +46,28 @@ export async function parseZerodhaExcel(
       String(h || '').trim().toLowerCase()
     );
 
-    const symIdx = rawHeaders.findIndex((h) => h.includes('symbol') || h.includes('scrip') || h.includes('instrument'));
-    const qtyIdx = rawHeaders.findIndex((h) => h.includes('quantity available') || h.includes('quantity') || h.includes('qty') || h.includes('net qty'));
-    const avgPriceIdx = rawHeaders.findIndex((h) => h.includes('average price') || h.includes('avg. cost') || h.includes('buy price'));
-    const ltpIdx = rawHeaders.findIndex((h) => h.includes('previous closing price') || h.includes('ltp') || h.includes('market price'));
-    const typeIdx = rawHeaders.findIndex((h) => h.includes('instrument type') || h.includes('sector'));
+    const symIdx = rawHeaders.findIndex((h) =>
+      h.includes('symbol') || h.includes('scrip') || h.includes('instrument')
+    );
+    const qtyIdx = rawHeaders.findIndex((h) =>
+      h.includes('quantity available') ||
+      h.includes('quantity') ||
+      h.includes('qty') ||
+      h.includes('net qty')
+    );
+    const avgPriceIdx = rawHeaders.findIndex((h) =>
+      h.includes('average price') ||
+      h.includes('avg. cost') ||
+      h.includes('buy price')
+    );
+    const ltpIdx = rawHeaders.findIndex((h) =>
+      h.includes('previous closing price') ||
+      h.includes('ltp') ||
+      h.includes('market price')
+    );
+    const typeIdx = rawHeaders.findIndex((h) =>
+      h.includes('instrument type') || h.includes('sector')
+    );
 
     const dataRows = rawRows.slice(headerIdx + 1);
 
@@ -67,34 +85,47 @@ export async function parseZerodhaExcel(
       if (isNaN(quantity) || quantity <= 0) continue;
 
       const rawType = typeIdx !== -1 ? String(row[typeIdx] || '').toUpperCase() : '';
-      const category = rawType.includes('FUND') || rawType.includes('MUTUAL') ? 'MUTUAL_FUND' : 'EQUITY';
+      const category =
+        rawType.includes('FUND') || rawType.includes('MUTUAL')
+          ? 'MUTUAL_FUND'
+          : 'EQUITY';
 
-      // Insert into holdings table with currency set to INR
+      const finalMarketPrice = marketPrice > 0 ? marketPrice : avgPrice;
+
+      // 1. Insert into holdings using dynamic brokerName
       db.run(
         `INSERT INTO holdings (broker, category, symbol, name, currency, quantity, avg_price, market_price)
-         VALUES ('Zerodha', ?, ?, ?, 'INR', ?, ?, ?)`,
-        [category, symbol, name, quantity, avgPrice, marketPrice > 0 ? marketPrice : avgPrice]
+         VALUES (?, ?, ?, ?, 'INR', ?, ?, ?)
+         ON CONFLICT(broker, symbol) DO UPDATE SET
+           quantity = excluded.quantity,
+           avg_price = excluded.avg_price,
+           market_price = excluded.market_price,
+           updated_at = CURRENT_TIMESTAMP`,
+        [brokerName, category, symbol, name, quantity, avgPrice, finalMarketPrice]
       );
       updatedHoldingsCount++;
 
-      const txHash = `ZERODHA_HOLDINGS_${symbol}_${today}_${quantity}_${avgPrice}`;
+      // 2. Isolate transaction hash by brokerName to prevent cross-account collisions
+      const txHash = `${brokerName}_HOLDINGS_${symbol}_${today}_${quantity}_${avgPrice}`;
       const amount = quantity * avgPrice;
 
       const checkRes = db.exec(`SELECT id FROM transactions WHERE tx_hash = ?`, [txHash]);
       if (checkRes.length === 0 || checkRes[0].values.length === 0) {
         db.run(
           `INSERT INTO transactions (broker, symbol, name, tx_type, tx_date, quantity, price, amount, currency, tx_hash)
-           VALUES ('Zerodha', ?, ?, 'BUY', ?, ?, ?, ?, 'INR', ?)`,
-          [symbol, name, today, quantity, avgPrice, amount, txHash]
+           VALUES (?, ?, ?, 'BUY', ?, ?, ?, ?, 'INR', ?)`,
+          [brokerName, symbol, name, today, quantity, avgPrice, amount, txHash]
         );
         newTxns++;
+      } else {
+        duplicates++;
       }
     }
 
     db.run('COMMIT');
 
     return {
-      broker: 'Zerodha',
+      broker: brokerName,
       importType: 'HOLDINGS_SNAPSHOT',
       newTransactionsAdded: newTxns,
       duplicatesSkipped: duplicates,

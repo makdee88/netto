@@ -5,9 +5,6 @@ import {
   CurrencyCode,
   BrokerType,
   CsvImportResult,
-  GICS_SECTORS,
-  GicsSector,
-  SectorWeight,
 } from '../types';
 import {
   FileSpreadsheet,
@@ -22,21 +19,14 @@ import {
   ShieldCheck,
   Edit2,
   ClipboardPaste,
-  X,
-  CheckCircle2,
   PieChart,
-  RotateCcw,
-  Sparkles,
 } from 'lucide-react';
-import {
-  getProperties,
-  getLiabilities,
-  getHoldingSectors,
-  saveHoldingSectors,
-} from '../db/database';
+import { getProperties, getLiabilities } from '../db/database';
 import { BrokerGuide } from './BrokerGuide';
-import { parsePastedFdRows, ParsedFdItem } from '../parsers/fdImporter';
+import { ParsedFdItem } from '../parsers/fdImporter';
 import { calculateFdValuation } from '../utils/finance';
+import { SectorEditorModal } from './manage/SectorEditorModal';
+import { FdPasteModal } from './manage/FdPasteModal';
 
 interface ManageAssetsTabProps {
   db: Database;
@@ -100,106 +90,6 @@ const BROKER_OPTIONS: { value: BrokerType; label: string }[] = [
   { value: 'Generic', label: 'Other / Custom File' },
 ];
 
-const detectDefaultSectorWeights = (h: HoldingRow): SectorWeight[] => {
-  const target = `${h.name || ''} ${h.symbol || ''}`.toLowerCase().replace(/[-_.,]/g, ' ');
-  const single = (sector: GicsSector): SectorWeight[] => [{ sector, weight_pct: 100 }];
-
-  if (target.includes('iwvl') || (target.includes('world') && target.includes('value'))) {
-    return [
-      { sector: 'Financials', weight_pct: 28.0 },
-      { sector: 'Industrials', weight_pct: 15.0 },
-      { sector: 'Healthcare', weight_pct: 14.0 },
-      { sector: 'Technology', weight_pct: 10.5 },
-      { sector: 'Consumer Staples', weight_pct: 9.0 },
-      { sector: 'Energy', weight_pct: 8.5 },
-      { sector: 'Communication Services', weight_pct: 6.0 },
-      { sector: 'Utilities', weight_pct: 5.0 },
-      { sector: 'Materials', weight_pct: 4.0 },
-    ];
-  }
-
-  if (target.includes('spiltan') || target.includes('investmentbolag')) {
-    return [
-      { sector: 'Financials', weight_pct: 55.0 },
-      { sector: 'Industrials', weight_pct: 32.0 },
-      { sector: 'Healthcare', weight_pct: 7.0 },
-      { sector: 'Technology', weight_pct: 6.0 },
-    ];
-  }
-
-  if (target.match(/omx|sverige|sweden|avanza zero|plus alla bolag|norden|nordic/)) {
-    return [
-      { sector: 'Industrials', weight_pct: 39.5 },
-      { sector: 'Financials', weight_pct: 26.5 },
-      { sector: 'Technology', weight_pct: 9.5 },
-      { sector: 'Healthcare', weight_pct: 8.0 },
-      { sector: 'Consumer Discretionary', weight_pct: 7.5 },
-      { sector: 'Materials', weight_pct: 5.0 },
-      { sector: 'Communication Services', weight_pct: 4.0 },
-    ];
-  }
-
-  if (target.match(/usa|s&p|sp500|nasdaq|qqq|spy/)) {
-    return [
-      { sector: 'Technology', weight_pct: 31.0 },
-      { sector: 'Financials', weight_pct: 13.0 },
-      { sector: 'Healthcare', weight_pct: 12.0 },
-      { sector: 'Consumer Discretionary', weight_pct: 10.5 },
-      { sector: 'Communication Services', weight_pct: 9.0 },
-      { sector: 'Industrials', weight_pct: 8.5 },
-      { sector: 'Consumer Staples', weight_pct: 6.0 },
-      { sector: 'Energy', weight_pct: 4.0 },
-      { sector: 'Utilities', weight_pct: 3.0 },
-      { sector: 'Materials', weight_pct: 3.0 },
-    ];
-  }
-
-  if (target.match(/nifty|sensex|india|bharat|parag parikh|mirae|axis|kotak|sbi|hdfc|icici|nippon|uti|quant|motilal/)) {
-    return [
-      { sector: 'Financials', weight_pct: 34.0 },
-      { sector: 'Technology', weight_pct: 13.5 },
-      { sector: 'Energy', weight_pct: 11.5 },
-      { sector: 'Consumer Staples', weight_pct: 9.0 },
-      { sector: 'Consumer Discretionary', weight_pct: 8.5 },
-      { sector: 'Materials', weight_pct: 8.0 },
-      { sector: 'Industrials', weight_pct: 6.5 },
-      { sector: 'Healthcare', weight_pct: 4.5 },
-      { sector: 'Utilities', weight_pct: 2.5 },
-      { sector: 'Communication Services', weight_pct: 2.0 },
-    ];
-  }
-
-  if (target.match(/global|world|msci|acwi|länsförsäkringar|storebrand|dnb|vanguard|ishares|amundi|xtrackers|fond|fund|etf|ucits|index/)) {
-    return [
-      { sector: 'Technology', weight_pct: 26.5 },
-      { sector: 'Financials', weight_pct: 15.5 },
-      { sector: 'Healthcare', weight_pct: 12.0 },
-      { sector: 'Industrials', weight_pct: 11.0 },
-      { sector: 'Consumer Discretionary', weight_pct: 10.5 },
-      { sector: 'Communication Services', weight_pct: 8.5 },
-      { sector: 'Consumer Staples', weight_pct: 6.5 },
-      { sector: 'Energy', weight_pct: 4.0 },
-      { sector: 'Materials', weight_pct: 3.0 },
-      { sector: 'Utilities', weight_pct: 2.5 },
-    ];
-  }
-
-  if (target.match(/tech|semiconductor|software|apple|aapl|microsoft|msft|nvidia|nvda|tcs|infosys|infy|ericsson|fortnox/)) {
-    return single('Technology');
-  }
-  if (target.match(/bank|financial|investor|inve|industrivärden|seb|swedbank|handelsbanken|shb|nordea/)) {
-    return single('Financials');
-  }
-  if (target.match(/health|pharma|astrazeneca|azn|novo|sun pharma|cipla/)) {
-    return single('Healthcare');
-  }
-  if (target.match(/industrial|volvo|atlas copco|atco|sandvik|abb|assa abloy|saab|skanska/)) {
-    return single('Industrials');
-  }
-
-  return single('Other / Unclassified');
-};
-
 export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
   db,
   holdings,
@@ -234,23 +124,11 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
   const [csvSummary, setCsvSummary] = useState<CsvImportResult | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Active broker identifier used across DB imports and clear actions
   const activeBrokerKey = isSecondaryAccount ? `S-${selectedBroker}` : selectedBroker;
 
-  // Quick Paste Modal State for FDs
+  // Modal States
   const [showFdPasteModal, setShowFdPasteModal] = useState<boolean>(false);
-  const [pastedRawText, setPastedRawText] = useState<string>('');
-  const [previewFdItems, setPreviewFdItems] = useState<ParsedFdItem[]>([]);
-  const [isSavingBulk, setIsSavingBulk] = useState<boolean>(false);
-
-  // Sector Breakdown Editor Modal State
   const [editingSectorHolding, setEditingSectorHolding] = useState<HoldingRow | null>(null);
-  const [isSavingSector, setIsSavingSector] = useState<boolean>(false);
-  const [sectorWeights, setSectorWeights] = useState<Record<GicsSector, number>>(() => {
-    const init = {} as Record<GicsSector, number>;
-    GICS_SECTORS.forEach((s) => (init[s] = 0));
-    return init;
-  });
 
   // Forms State
   const [fdForm, setFdForm] = useState({
@@ -301,105 +179,6 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
     if (freq === 4) return 'Quarterly';
     if (freq === 2) return 'Semi-Annual';
     return 'Annual';
-  };
-
-  const handleProcessPastedText = (text: string) => {
-    setPastedRawText(text);
-    const items = parsePastedFdRows(text);
-    setPreviewFdItems(items);
-  };
-
-  const handleSaveBulkFds = async () => {
-    if (previewFdItems.length === 0 || !onAddBulkFDs) return;
-    try {
-      setIsSavingBulk(true);
-      await onAddBulkFDs(previewFdItems);
-      setShowFdPasteModal(false);
-      setPastedRawText('');
-      setPreviewFdItems([]);
-    } catch (err: any) {
-      alert(`Bulk save failed: ${err?.message || err}`);
-    } finally {
-      setIsSavingBulk(false);
-    }
-  };
-
-  const openSectorEditor = (h: HoldingRow) => {
-    try {
-      setEditingSectorHolding(h);
-      const existing = getHoldingSectors(db, h.symbol);
-      const initialWeights = {} as Record<GicsSector, number>;
-      GICS_SECTORS.forEach((s) => (initialWeights[s] = 0));
-
-      const hasValidSaved =
-        existing &&
-        existing.length > 0 &&
-        !(existing.length === 1 && existing[0].sector === 'Other / Unclassified');
-
-      if (hasValidSaved) {
-        existing.forEach((item: SectorWeight) => {
-          if (item.sector) {
-            initialWeights[item.sector as GicsSector] = Number(item.weight_pct) || 0;
-          }
-        });
-      } else {
-        const detected = detectDefaultSectorWeights(h);
-        detected.forEach((item: SectorWeight) => {
-          initialWeights[item.sector as GicsSector] = Number(item.weight_pct) || 0;
-        });
-      }
-      setSectorWeights(initialWeights);
-    } catch (err) {
-      console.error('Error opening sector modal:', err);
-    }
-  };
-
-  const handleClearAllSectors = () => {
-    const empty = {} as Record<GicsSector, number>;
-    GICS_SECTORS.forEach((s) => (empty[s] = 0));
-    setSectorWeights(empty);
-  };
-
-  const handleAutoDetectSingle = () => {
-    if (!editingSectorHolding) return;
-    const detected = detectDefaultSectorWeights(editingSectorHolding);
-    const updated = {} as Record<GicsSector, number>;
-    GICS_SECTORS.forEach((s) => (updated[s] = 0));
-    detected.forEach((item: SectorWeight) => {
-      updated[item.sector as GicsSector] = Number(item.weight_pct) || 0;
-    });
-    setSectorWeights(updated);
-  };
-
-  const totalSectorPct = Object.values(sectorWeights).reduce(
-    (sum, v) => sum + (Number(v) || 0),
-    0
-  );
-
-  const handleSaveSectors = async () => {
-    if (!editingSectorHolding) return;
-    try {
-      setIsSavingSector(true);
-      const payload: SectorWeight[] = Object.entries(sectorWeights)
-        .filter(([_, weight]) => Number(weight) > 0)
-        .map(([sec, weight]) => ({
-          sector: sec as GicsSector,
-          weight_pct: Number(weight),
-        }));
-
-      saveHoldingSectors(db, editingSectorHolding.symbol, payload);
-
-      if (onSaveVault) {
-        await onSaveVault();
-      }
-
-      setEditingSectorHolding(null);
-    } catch (err: any) {
-      console.error('Failed to save sectors:', err);
-      alert(`Error saving sector split: ${err?.message || err}`);
-    } finally {
-      setIsSavingSector(false);
-    }
   };
 
   return (
@@ -485,7 +264,6 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
-              {/* Primary Broker Select */}
               <select
                 value={selectedBroker}
                 onChange={(e) => setSelectedBroker(e.target.value as BrokerType)}
@@ -502,7 +280,6 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                 ))}
               </select>
 
-              {/* Secondary Account Checkbox */}
               <label
                 className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-semibold cursor-pointer transition select-none ${
                   isSecondaryAccount
@@ -523,7 +300,6 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                 <span>Secondary Account (S-)</span>
               </label>
 
-              {/* Upload Button */}
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
@@ -563,7 +339,6 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                 className="hidden"
               />
 
-              {/* Wipe Broker Holdings Button */}
               <button
                 type="button"
                 onClick={() => {
@@ -704,10 +479,14 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                     <tr key={h.id} className="hover:bg-slate-800/10 transition">
                       <td className="py-3 font-bold">
                         <span
-                          className={`inline-block px-2 py-0.5 rounded-md ${
+                          className={`inline-block px-2 py-0.5 rounded-md text-xs font-semibold border ${
                             h.broker.startsWith('S-')
-                              ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
-                              : 'bg-slate-800/20 text-slate-300'
+                              ? isDark
+                                ? 'bg-purple-950/40 text-purple-300 border-purple-500/30'
+                                : 'bg-purple-50 text-purple-800 border-purple-200'
+                              : isDark
+                              ? 'bg-slate-800/40 text-slate-200 border-slate-700/50'
+                              : 'bg-slate-100 text-slate-800 border-slate-200'
                           }`}
                         >
                           {h.broker}
@@ -740,7 +519,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                       <td className="py-3 text-right flex items-center justify-end gap-1">
                         <button
                           type="button"
-                          onClick={() => openSectorEditor(h)}
+                          onClick={() => setEditingSectorHolding(h)}
                           className="text-purple-400 hover:text-purple-300 p-1 rounded-lg hover:bg-purple-500/10 cursor-pointer transition"
                           title="View / Edit Sector Breakdown"
                         >
@@ -978,7 +757,9 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
 
                       return (
                         <tr key={fd.id} className="hover:bg-slate-800/10 transition">
-                          <td className="py-3 font-semibold">{fd.broker}</td>
+                          <td className={`py-3 font-semibold ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>
+                            {fd.broker}
+                          </td>
                           <td className="py-3">
                             <div className="font-semibold">{fd.name}</div>
                             <div className="text-[10px] opacity-60">
@@ -1581,7 +1362,9 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                     const displayVal = p.market_price > 0 ? p.market_price : p.principal || 0;
                     return (
                       <tr key={p.id} className="hover:bg-slate-800/10 transition">
-                        <td className="py-3 font-semibold">{p.broker}</td>
+                        <td className={`py-3 font-semibold ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>
+                          {p.broker}
+                        </td>
                         <td className="py-3">{p.name}</td>
                         <td className="py-3 text-right font-mono font-bold text-purple-400">
                           {displayVal.toLocaleString()} {p.currency}
@@ -1636,258 +1419,26 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
 
       {/* Quick Paste Modal for Fixed Deposits */}
       {showFdPasteModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
-          <div
-            className={`w-full max-w-4xl rounded-3xl p-6 sm:p-8 shadow-2xl border space-y-4 max-h-[90vh] overflow-y-auto ${
-              isDark
-                ? 'bg-slate-900 border-slate-800 text-slate-100'
-                : 'bg-white border-slate-200 text-slate-800'
-            }`}
-          >
-            <div className="flex items-center justify-between border-b border-slate-800/20 pb-3">
-              <div>
-                <h3 className="text-sm font-bold flex items-center gap-2 text-emerald-400">
-                  <ClipboardPaste className="w-4 h-4" /> Quick Paste Fixed Deposits
-                </h3>
-                <p className="text-[11px] opacity-70 mt-0.5">
-                  Copy rows directly from Excel, Google Sheets, or your online banking table and
-                  paste them below.
-                </p>
-              </div>
-              <button
-                onClick={() => {
-                  setShowFdPasteModal(false);
-                  setPastedRawText('');
-                  setPreviewFdItems([]);
-                }}
-                className="opacity-70 hover:opacity-100 p-1 cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between text-[11px] opacity-70 mb-1">
-                <span>
-                  <strong>Supported column order:</strong> Bank | Deposit Name | Principal | Rate %
-                  | Currency | Start Date | Maturity Date
-                </span>
-                <span className="font-mono text-emerald-400 font-bold">
-                  {previewFdItems.length} recognized
-                </span>
-              </div>
-              <textarea
-                rows={5}
-                value={pastedRawText}
-                onChange={(e) => handleProcessPastedText(e.target.value)}
-                placeholder={
-                  'SBAB\tFasträntekonto 1Y\t100000\t3.75\tSEK\t2026-01-15\t2027-01-15\nHDFC\tTax Saver FD\t50000\t7.10\tINR\t2025-05-10\t2030-05-10'
-                }
-                className={`w-full p-3 rounded-2xl border font-mono text-xs outline-none ${
-                  isDark
-                    ? 'bg-slate-950 border-slate-800 text-slate-200'
-                    : 'bg-slate-50 border-slate-300'
-                }`}
-              />
-            </div>
-
-            {previewFdItems.length > 0 && (
-              <div className="space-y-2">
-                <span className="text-[11px] font-bold text-indigo-400 uppercase tracking-wider">
-                  Data Preview ({previewFdItems.length} deposits detected)
-                </span>
-                <div className="overflow-x-auto rounded-xl border border-slate-800/20 max-h-52">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-950/20">
-                      <tr className="opacity-70 border-b border-slate-800/30">
-                        <th className="p-2">Bank</th>
-                        <th className="p-2">Deposit Name</th>
-                        <th className="p-2 text-right">Principal</th>
-                        <th className="p-2 text-right">Rate</th>
-                        <th className="p-2">Currency</th>
-                        <th className="p-2">Start Date</th>
-                        <th className="p-2">Maturity Date</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-800/20 font-mono">
-                      {previewFdItems.map((item, idx) => (
-                        <tr key={idx} className="hover:bg-slate-800/10">
-                          <td className="p-2 font-semibold">{item.broker}</td>
-                          <td className="p-2">{item.name}</td>
-                          <td className="p-2 text-right font-medium">
-                            {item.principal.toLocaleString()}
-                          </td>
-                          <td className="p-2 text-right text-emerald-400">{item.interestRate}%</td>
-                          <td className="p-2">{item.currency}</td>
-                          <td className="p-2 text-indigo-400">{item.startDate}</td>
-                          <td className="p-2 opacity-80">{item.maturityDate || '-'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-800/20">
-              <button
-                onClick={() => {
-                  setShowFdPasteModal(false);
-                  setPastedRawText('');
-                  setPreviewFdItems([]);
-                }}
-                className="px-4 py-2 rounded-xl text-xs font-semibold opacity-70 hover:opacity-100 cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                disabled={previewFdItems.length === 0 || isSavingBulk}
-                onClick={handleSaveBulkFds}
-                className="flex items-center gap-1.5 px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-bold text-xs shadow transition cursor-pointer"
-              >
-                <CheckCircle2 className="w-4 h-4" />
-                {isSavingBulk
-                  ? 'Saving & Encrypting...'
-                  : `Save ${previewFdItems.length} Deposits`}
-              </button>
-            </div>
-          </div>
-        </div>
+        <FdPasteModal
+          isDark={isDark}
+          onClose={() => setShowFdPasteModal(false)}
+          onSave={async (items) => {
+            if (onAddBulkFDs) {
+              await onAddBulkFDs(items);
+            }
+          }}
+        />
       )}
 
       {/* Sector Breakdown Modal */}
       {editingSectorHolding && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in">
-          <div
-            className={`w-full max-w-xl rounded-3xl p-6 shadow-2xl border space-y-4 max-h-[90vh] flex flex-col ${
-              isDark
-                ? 'bg-slate-900 border-slate-800 text-slate-100'
-                : 'bg-white border-slate-200 text-slate-800'
-            }`}
-          >
-            <div className="flex items-center justify-between border-b border-slate-800/20 pb-3">
-              <div>
-                <h3 className="text-sm font-bold flex items-center gap-2 text-purple-400">
-                  <PieChart className="w-4 h-4" /> Sector Breakdown: {editingSectorHolding.name}
-                </h3>
-                <p className="text-[11px] opacity-70 font-mono mt-0.5">
-                  {editingSectorHolding.symbol} ({editingSectorHolding.broker}) • Total must equal 100%
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setEditingSectorHolding(null)}
-                className="opacity-70 hover:opacity-100 p-1 cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] uppercase font-bold opacity-60">
-                  Quick 100% Allocation or Auto-Detect:
-                </span>
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={handleAutoDetectSingle}
-                    className="flex items-center gap-1 text-[10px] text-purple-400 hover:underline font-bold cursor-pointer"
-                  >
-                    <Sparkles className="w-3 h-3" /> Auto-Detect Benchmark
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleClearAllSectors}
-                    className="flex items-center gap-1 text-[10px] text-rose-400 hover:underline font-semibold cursor-pointer"
-                  >
-                    <RotateCcw className="w-3 h-3" /> Reset All to 0%
-                  </button>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap gap-1.5">
-                {GICS_SECTORS.slice(0, 6).map((sec) => (
-                  <button
-                    key={sec}
-                    type="button"
-                    onClick={() => {
-                      const reset = {} as Record<GicsSector, number>;
-                      GICS_SECTORS.forEach((s) => (reset[s] = s === sec ? 100 : 0));
-                      setSectorWeights(reset);
-                    }}
-                    className="px-2 py-1 rounded-lg border border-slate-700/50 text-[10px] hover:bg-purple-600 hover:text-white transition cursor-pointer"
-                  >
-                    100% {sec}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="flex-1 overflow-y-auto space-y-2 pr-1 max-h-72">
-              {GICS_SECTORS.map((sector) => (
-                <div
-                  key={sector}
-                  className={`flex items-center justify-between p-2 rounded-xl border text-xs ${
-                    isDark ? 'bg-slate-950/40 border-slate-800' : 'bg-slate-50 border-slate-200'
-                  }`}
-                >
-                  <span className="font-medium">{sector}</span>
-                  <div className="flex items-center gap-1.5">
-                    <input
-                      type="number"
-                      min="0"
-                      max="100"
-                      step="0.1"
-                      value={sectorWeights[sector] || ''}
-                      onChange={(e) => {
-                        const val = parseFloat(e.target.value) || 0;
-                        setSectorWeights((prev) => ({
-                          ...prev,
-                          [sector]: val,
-                        }));
-                      }}
-                      className="w-16 px-2 py-1 rounded-lg border text-right font-mono text-xs bg-transparent"
-                      placeholder="0"
-                    />
-                    <span className="font-mono opacity-60">%</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="pt-3 border-t border-slate-800/20 space-y-3">
-              <div className="flex items-center justify-between text-xs font-mono font-bold">
-                <span>Total Allocated:</span>
-                <span
-                  className={
-                    Math.abs(totalSectorPct - 100) < 0.5 ? 'text-emerald-400' : 'text-rose-400'
-                  }
-                >
-                  {totalSectorPct.toFixed(1)}% / 100%
-                </span>
-              </div>
-
-              <div className="flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setEditingSectorHolding(null)}
-                  className="px-4 py-2 rounded-xl text-xs font-semibold opacity-70 hover:opacity-100 cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  disabled={Math.abs(totalSectorPct - 100) > 0.5 || isSavingSector}
-                  onClick={handleSaveSectors}
-                  className="px-5 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white font-bold text-xs shadow transition cursor-pointer"
-                >
-                  {isSavingSector ? 'Saving...' : 'Save Sector Split'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <SectorEditorModal
+          holding={editingSectorHolding}
+          db={db}
+          isDark={isDark}
+          onClose={() => setEditingSectorHolding(null)}
+          onSaveVault={onSaveVault}
+        />
       )}
     </div>
   );

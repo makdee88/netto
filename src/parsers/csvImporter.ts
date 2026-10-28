@@ -43,8 +43,10 @@ export async function importBrokerCsv(
     file.name.endsWith('.xls') ||
     file.type.includes('spreadsheetml');
 
+  // 1. Excel files (Zerodha / Generic holdings snapshot)
+  // FIX: Pass broker as the 2nd argument so S-Zerodha is preserved!
   if (isExcel) {
-    const summary = await parseZerodhaExcel(file, db);
+    const summary = await parseZerodhaExcel(file, broker, db);
     onComplete(summary);
     return summary;
   }
@@ -59,8 +61,8 @@ export async function importBrokerCsv(
   try {
     const lowerBroker = broker.toLowerCase();
 
-    // 1. Avanza (Sweden)
-    if (lowerBroker === 'avanza') {
+    // 1. Avanza (Sweden) - check if it's Avanza or S-Avanza
+    if (lowerBroker.includes('avanza')) {
       const rows = parseCsvLines(text, ';');
       if (rows.length < 2) throw new Error('Avanza CSV is empty or invalid.');
 
@@ -91,7 +93,7 @@ export async function importBrokerCsv(
         const price = normalizeNumber(r[priceIdx]);
         const amount = amtIdx !== -1 ? Math.abs(normalizeNumber(r[amtIdx])) : quantity * price;
         const currency = (r[currIdx] || 'SEK').toUpperCase();
-        const txHash = `AVANZA_${symbol}_${txDate}_${txType}_${quantity}_${price}`;
+        const txHash = `${broker}_${symbol}_${txDate}_${txType}_${quantity}_${price}`;
 
         if (quantity <= 0 && txType !== 'DIVIDEND') continue;
 
@@ -103,13 +105,13 @@ export async function importBrokerCsv(
 
         db.run(
           `INSERT INTO transactions (broker, symbol, name, tx_type, tx_date, quantity, price, amount, currency, tx_hash)
-           VALUES ('Avanza', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [symbol, name, txType, txDate, quantity, price, amount, currency, txHash]
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [broker, symbol, name, txType, txDate, quantity, price, amount, currency, txHash]
         );
         newTxns++;
       }
 
-      db.run(`DELETE FROM holdings WHERE broker = 'Avanza' AND category = 'EQUITY'`);
+      db.run(`DELETE FROM holdings WHERE broker = ? AND category = 'EQUITY'`, [broker]);
 
       const hStmt = db.prepare(`
         SELECT 
@@ -118,9 +120,10 @@ export async function importBrokerCsv(
           SUM(CASE WHEN tx_type = 'BUY' THEN quantity * price ELSE 0 END) as total_cost,
           SUM(CASE WHEN tx_type = 'BUY' THEN quantity ELSE 0 END) as buy_qty
         FROM transactions
-        WHERE broker = 'Avanza'
+        WHERE broker = ?
         GROUP BY symbol
       `);
+      hStmt.bind([broker]);
 
       let updatedCount = 0;
       while (hStmt.step()) {
@@ -129,8 +132,8 @@ export async function importBrokerCsv(
           const avgPrice = h.buy_qty > 0 ? h.total_cost / h.buy_qty : 0;
           db.run(
             `INSERT INTO holdings (broker, category, symbol, name, currency, quantity, avg_price, market_price)
-             VALUES ('Avanza', 'EQUITY', ?, ?, ?, ?, ?, ?)`,
-            [h.symbol, h.name, h.currency, h.net_qty, avgPrice, avgPrice]
+             VALUES (?, 'EQUITY', ?, ?, ?, ?, ?, ?)`,
+            [broker, h.symbol, h.name, h.currency, h.net_qty, avgPrice, avgPrice]
           );
           updatedCount++;
         }
@@ -140,7 +143,7 @@ export async function importBrokerCsv(
       db.run('COMMIT');
 
       const result: CsvImportResult = {
-        broker: 'Avanza',
+        broker,
         importType: 'TRADEBOOK',
         newTransactionsAdded: newTxns,
         duplicatesSkipped: duplicates,
@@ -152,7 +155,7 @@ export async function importBrokerCsv(
     }
 
     // 2. Kuvera (India - Mutual Funds)
-    if (lowerBroker === 'kuvera') {
+    if (lowerBroker.includes('kuvera')) {
       const rows = parseCsvLines(text, ',');
       if (rows.length < 2) throw new Error('Kuvera CSV is empty or invalid.');
 
@@ -179,7 +182,7 @@ export async function importBrokerCsv(
         const price = normalizeNumber(r[navIdx]);
         const amount = amtIdx !== -1 ? Math.abs(normalizeNumber(r[amtIdx])) : quantity * price;
         const folio = folioIdx !== -1 ? r[folioIdx] : '';
-        const txHash = `KUVERA_${symbol}_${txDate}_${txType}_${quantity}_${price}_${folio}`;
+        const txHash = `${broker}_${symbol}_${txDate}_${txType}_${quantity}_${price}_${folio}`;
 
         if (quantity <= 0) continue;
 
@@ -191,13 +194,13 @@ export async function importBrokerCsv(
 
         db.run(
           `INSERT INTO transactions (broker, symbol, name, tx_type, tx_date, quantity, price, amount, currency, tx_hash)
-           VALUES ('Kuvera', ?, ?, ?, ?, ?, ?, ?, 'INR', ?)`,
-          [symbol, name, txType, txDate, quantity, price, amount, txHash]
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'INR', ?)`,
+          [broker, symbol, name, txType, txDate, quantity, price, amount, txHash]
         );
         newTxns++;
       }
 
-      db.run(`DELETE FROM holdings WHERE broker = 'Kuvera'`);
+      db.run(`DELETE FROM holdings WHERE broker = ?`, [broker]);
 
       const hStmt = db.prepare(`
         SELECT 
@@ -206,9 +209,10 @@ export async function importBrokerCsv(
           SUM(CASE WHEN tx_type = 'BUY' THEN quantity * price ELSE 0 END) as total_cost,
           SUM(CASE WHEN tx_type = 'BUY' THEN quantity ELSE 0 END) as buy_qty
         FROM transactions
-        WHERE broker = 'Kuvera'
+        WHERE broker = ?
         GROUP BY symbol
       `);
+      hStmt.bind([broker]);
 
       let updatedCount = 0;
       while (hStmt.step()) {
@@ -217,8 +221,8 @@ export async function importBrokerCsv(
           const avgPrice = h.buy_qty > 0 ? h.total_cost / h.buy_qty : 0;
           db.run(
             `INSERT INTO holdings (broker, category, symbol, name, currency, quantity, avg_price, market_price)
-             VALUES ('Kuvera', 'MUTUAL_FUND', ?, ?, ?, ?, ?, ?)`,
-            [h.symbol, h.name, h.currency || 'INR', h.net_qty, avgPrice, avgPrice]
+             VALUES (?, 'MUTUAL_FUND', ?, ?, ?, ?, ?, ?)`,
+            [broker, h.symbol, h.name, h.currency || 'INR', h.net_qty, avgPrice, avgPrice]
           );
           updatedCount++;
         }
@@ -228,7 +232,7 @@ export async function importBrokerCsv(
       db.run('COMMIT');
 
       const result: CsvImportResult = {
-        broker: 'Kuvera',
+        broker,
         importType: 'TRADEBOOK',
         newTransactionsAdded: newTxns,
         duplicatesSkipped: duplicates,
@@ -240,7 +244,7 @@ export async function importBrokerCsv(
     }
 
     // 3. Interactive Brokers (IBKR Multi-section Activity Statement)
-    if (lowerBroker === 'interactivebrokers' || lowerBroker === 'ibkr') {
+    if (lowerBroker.includes('interactivebrokers') || lowerBroker.includes('ibkr')) {
       const allRows = parseCsvLines(text, ',');
       if (allRows.length < 2) throw new Error('IBKR CSV is empty or invalid.');
 
@@ -286,7 +290,7 @@ export async function importBrokerCsv(
 
         if (!symbol || (quantity <= 0 && txType !== 'DIVIDEND')) continue;
 
-        const txHash = `IBKR_${symbol}_${txDate}_${txType}_${quantity}_${price}_${currency}`;
+        const txHash = `${broker}_${symbol}_${txDate}_${txType}_${quantity}_${price}_${currency}`;
 
         const checkRes = db.exec(`SELECT id FROM transactions WHERE tx_hash = ?`, [txHash]);
         if (checkRes.length > 0 && checkRes[0].values.length > 0) {
@@ -296,13 +300,13 @@ export async function importBrokerCsv(
 
         db.run(
           `INSERT INTO transactions (broker, symbol, name, tx_type, tx_date, quantity, price, amount, currency, tx_hash)
-           VALUES ('InteractiveBrokers', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [symbol, name, txType, txDate, quantity, price, rawAmount, currency, txHash]
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [broker, symbol, name, txType, txDate, quantity, price, rawAmount, currency, txHash]
         );
         newTxns++;
       }
 
-      db.run(`DELETE FROM holdings WHERE broker = 'InteractiveBrokers' AND category = 'EQUITY'`);
+      db.run(`DELETE FROM holdings WHERE broker = ? AND category = 'EQUITY'`, [broker]);
 
       const hStmt = db.prepare(`
         SELECT 
@@ -311,9 +315,10 @@ export async function importBrokerCsv(
           SUM(CASE WHEN tx_type = 'BUY' THEN quantity * price ELSE 0 END) as total_cost,
           SUM(CASE WHEN tx_type = 'BUY' THEN quantity ELSE 0 END) as buy_qty
         FROM transactions
-        WHERE broker = 'InteractiveBrokers'
+        WHERE broker = ?
         GROUP BY symbol, currency
       `);
+      hStmt.bind([broker]);
 
       let updatedCount = 0;
       while (hStmt.step()) {
@@ -322,8 +327,8 @@ export async function importBrokerCsv(
           const avgPrice = h.buy_qty > 0 ? h.total_cost / h.buy_qty : 0;
           db.run(
             `INSERT INTO holdings (broker, category, symbol, name, currency, quantity, avg_price, market_price)
-             VALUES ('InteractiveBrokers', 'EQUITY', ?, ?, ?, ?, ?, ?)`,
-            [h.symbol, h.name, h.currency || 'USD', h.net_qty, avgPrice, avgPrice]
+             VALUES (?, 'EQUITY', ?, ?, ?, ?, ?, ?)`,
+            [broker, h.symbol, h.name, h.currency || 'USD', h.net_qty, avgPrice, avgPrice]
           );
           updatedCount++;
         }
@@ -333,7 +338,7 @@ export async function importBrokerCsv(
       db.run('COMMIT');
 
       const result: CsvImportResult = {
-        broker: 'InteractiveBrokers',
+        broker,
         importType: 'TRADEBOOK',
         newTransactionsAdded: newTxns,
         duplicatesSkipped: duplicates,
@@ -391,7 +396,6 @@ export async function importBrokerCsv(
 
     db.run(`DELETE FROM holdings WHERE broker = ? AND category = 'EQUITY'`, [broker]);
 
-    const safeBroker = broker.replace(/'/g, "''");
     const hStmt = db.prepare(`
       SELECT 
         symbol, name, currency,
@@ -399,9 +403,10 @@ export async function importBrokerCsv(
         SUM(CASE WHEN tx_type = 'BUY' THEN quantity * price ELSE 0 END) as total_cost,
         SUM(CASE WHEN tx_type = 'BUY' THEN quantity ELSE 0 END) as buy_qty
       FROM transactions
-      WHERE broker = '${safeBroker}'
+      WHERE broker = ?
       GROUP BY symbol, currency
     `);
+    hStmt.bind([broker]);
 
     let updatedCount = 0;
     while (hStmt.step()) {
