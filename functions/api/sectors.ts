@@ -1,5 +1,4 @@
-// api/sectors.ts
-import type { VercelRequest, VercelResponse } from '@vercel/node';
+// functions/api/sectors.ts
 
 const YAHOO_SECTOR_MAP: Record<string, string> = {
   technology: 'Technology',
@@ -34,13 +33,11 @@ const HEADERS = {
 };
 
 async function resolveYahooTicker(symbol: string, name: string): Promise<string | null> {
-  // If symbol already looks like a clean ticker (e.g., IWVL.L, AAPL, VOLV-B.ST), try it first
-  const cleanSym = symbol.trim();
+  const cleanSym = (symbol || '').trim();
   if (/^[A-Z0-9.-]{1,12}$/i.test(cleanSym) && !cleanSym.includes('_')) {
     return cleanSym;
   }
 
-  // Otherwise search Yahoo Finance by name or symbol
   const searchTerms = [name, symbol].filter(Boolean).join(' ');
   try {
     const url = `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(
@@ -48,7 +45,7 @@ async function resolveYahooTicker(symbol: string, name: string): Promise<string 
     )}&quotesCount=3&newsCount=0`;
     const res = await fetch(url, { headers: HEADERS });
     if (!res.ok) return null;
-    const data = await res.json();
+    const data: any = await res.json();
     const firstQuote = data?.quotes?.[0];
     return firstQuote?.symbol || null;
   } catch {
@@ -64,7 +61,7 @@ async function fetchYahooSectorBreakdown(ticker: string): Promise<SectorWeight[]
     const res = await fetch(url, { headers: HEADERS });
     if (!res.ok) return null;
 
-    const json = await res.json();
+    const json: any = await res.json();
     const result = json?.quoteSummary?.result?.[0];
     if (!result) return null;
 
@@ -88,7 +85,6 @@ async function fetchYahooSectorBreakdown(ticker: string): Promise<SectorWeight[]
       }
 
       if (weights.length > 0 && total > 0) {
-        // Normalize to 100%
         return weights.map((w) => ({
           sector: w.sector,
           weight_pct: Math.round((w.weight_pct / total) * 1000) / 10,
@@ -110,13 +106,11 @@ async function fetchYahooSectorBreakdown(ticker: string): Promise<SectorWeight[]
   }
 }
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
-
+// Cloudflare Pages Function handler
+export async function onRequestPost(context: { request: Request }): Promise<Response> {
   try {
-    const holdings: HoldingQuery[] = req.body?.holdings || [];
+    const body: any = await context.request.json().catch(() => ({}));
+    const holdings: HoldingQuery[] = body?.holdings || [];
     const results: Record<string, SectorWeight[]> = {};
 
     await Promise.all(
@@ -131,8 +125,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       })
     );
 
-    return res.status(200).json({ sectors: results });
+    return new Response(JSON.stringify({ sectors: results }), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
   } catch (err: any) {
-    return res.status(500).json({ error: err?.message || 'Sector lookup error' });
+    return new Response(
+      JSON.stringify({ error: err?.message || 'Sector lookup error' }),
+      {
+        status: 500,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }
+    );
   }
+}
+
+// Compatibility export if invoked directly with (req: Request)
+export default async function handler(req: Request): Promise<Response> {
+  return onRequestPost({ request: req });
 }
