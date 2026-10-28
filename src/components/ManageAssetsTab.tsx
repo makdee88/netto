@@ -97,7 +97,7 @@ const BROKER_OPTIONS: { value: BrokerType; label: string }[] = [
   { value: 'Groww', label: 'Groww (India)' },
   { value: 'InteractiveBrokers', label: 'Interactive Brokers' },
   { value: 'Degiro', label: 'DEGIRO' },
-  { value: 'Generic', label: 'Other / Custom CSV' },
+  { value: 'Generic', label: 'Other / Custom File' },
 ];
 
 const detectDefaultSectorWeights = (h: HoldingRow): SectorWeight[] => {
@@ -225,6 +225,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
   const liabilities = getLiabilities(db);
 
   const [selectedBroker, setSelectedBroker] = useState<BrokerType>('Avanza');
+  const [isSecondaryAccount, setIsSecondaryAccount] = useState<boolean>(false);
   const [activeFormTab, setActiveFormTab] = useState<
     'EQUITY' | 'FD' | 'PROPERTY' | 'LIABILITY' | 'PENSION'
   >('EQUITY');
@@ -232,6 +233,9 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
   const [uploadStatus, setUploadStatus] = useState<string>('');
   const [csvSummary, setCsvSummary] = useState<CsvImportResult | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Active broker identifier used across DB imports and clear actions
+  const activeBrokerKey = isSecondaryAccount ? `S-${selectedBroker}` : selectedBroker;
 
   // Quick Paste Modal State for FDs
   const [showFdPasteModal, setShowFdPasteModal] = useState<boolean>(false);
@@ -476,11 +480,12 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                 <h3 className="text-base font-bold">Broker Ledger Import</h3>
               </div>
               <p className={`text-xs mt-1 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
-                Select your broker below to view export instructions and upload your report.
+                Select your broker below, toggle Secondary Account if importing a 2nd portfolio, and upload your file.
               </p>
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
+              {/* Primary Broker Select */}
               <select
                 value={selectedBroker}
                 onChange={(e) => setSelectedBroker(e.target.value as BrokerType)}
@@ -497,6 +502,28 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                 ))}
               </select>
 
+              {/* Secondary Account Checkbox */}
+              <label
+                className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-semibold cursor-pointer transition select-none ${
+                  isSecondaryAccount
+                    ? isDark
+                      ? 'bg-purple-950/40 border-purple-500/50 text-purple-300'
+                      : 'bg-purple-50 border-purple-300 text-purple-800'
+                    : isDark
+                    ? 'bg-slate-950/40 border-slate-800 text-slate-400 hover:text-slate-200'
+                    : 'bg-slate-50 border-slate-200 text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={isSecondaryAccount}
+                  onChange={(e) => setIsSecondaryAccount(e.target.checked)}
+                  className="rounded border-slate-700 text-purple-600 focus:ring-0 cursor-pointer"
+                />
+                <span>Secondary Account (S-)</span>
+              </label>
+
+              {/* Upload Button */}
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
@@ -504,22 +531,22 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                 className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs cursor-pointer shadow-md transition disabled:opacity-50"
               >
                 <Upload className="w-4 h-4" />
-                <span>{isUploading ? 'Parsing File...' : 'Upload File'}</span>
+                <span>{isUploading ? 'Parsing File...' : `Upload to [${activeBrokerKey}]`}</span>
               </button>
 
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".csv, .xlsx, .xls, text/csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                accept=".csv, .xlsx, .xls, text/csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel"
                 onChange={async (e) => {
                   const file = e.target.files?.[0];
                   if (file) {
                     try {
                       setIsUploading(true);
                       setCsvSummary(null);
-                      setUploadStatus(`Reading and parsing ${file.name}...`);
+                      setUploadStatus(`Reading and parsing ${file.name} for [${activeBrokerKey}]...`);
 
-                      const summary = await onCsvImport(file, selectedBroker);
+                      const summary = await onCsvImport(file, activeBrokerKey);
                       if (summary) {
                         setCsvSummary(summary);
                         setUploadStatus('Import completed successfully!');
@@ -536,20 +563,21 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                 className="hidden"
               />
 
+              {/* Wipe Broker Holdings Button */}
               <button
                 type="button"
                 onClick={() => {
                   if (
                     confirm(
-                      `Wipe all imported transactions and holdings for ${selectedBroker}?`
+                      `Wipe all imported transactions and holdings for ${activeBrokerKey}?`
                     )
                   ) {
-                    onClearBroker(selectedBroker);
+                    onClearBroker(activeBrokerKey);
                     setCsvSummary(null);
                   }
                 }}
                 className="p-2 border border-rose-500/30 text-rose-400 hover:bg-rose-500/10 rounded-xl text-xs font-semibold transition cursor-pointer"
-                title={`Clear ${selectedBroker} Ledger`}
+                title={`Clear ${activeBrokerKey} Ledger`}
               >
                 <Trash2 className="w-4 h-4" />
               </button>
@@ -573,7 +601,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                   {isUploading ? (
                     <>
                       <div className="w-4 h-4 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
-                      <span>{uploadStatus || 'Processing broker report...'}</span>
+                      <span>{uploadStatus || 'Processing report...'}</span>
                     </>
                   ) : csvSummary ? (
                     <>
@@ -669,10 +697,22 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
               <tbody className="divide-y divide-slate-800/20">
                 {equityHoldings.map((h) => {
                   const isSnapshot =
-                    h.broker === 'Zerodha' || String(h.symbol).includes('HOLDINGS');
+                    h.broker === 'Zerodha' ||
+                    h.broker === 'S-Zerodha' ||
+                    String(h.symbol).includes('HOLDINGS');
                   return (
                     <tr key={h.id} className="hover:bg-slate-800/10 transition">
-                      <td className="py-3 font-bold">{h.broker}</td>
+                      <td className="py-3 font-bold">
+                        <span
+                          className={`inline-block px-2 py-0.5 rounded-md ${
+                            h.broker.startsWith('S-')
+                              ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
+                              : 'bg-slate-800/20 text-slate-300'
+                          }`}
+                        >
+                          {h.broker}
+                        </span>
+                      </td>
                       <td className="py-3">
                         <div className="font-semibold">{h.name || h.symbol}</div>
                         <div className="text-[10px] opacity-60 font-mono">{h.symbol}</div>
@@ -1731,7 +1771,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                   <PieChart className="w-4 h-4" /> Sector Breakdown: {editingSectorHolding.name}
                 </h3>
                 <p className="text-[11px] opacity-70 font-mono mt-0.5">
-                  {editingSectorHolding.symbol} • Total must equal 100%
+                  {editingSectorHolding.symbol} ({editingSectorHolding.broker}) • Total must equal 100%
                 </p>
               </div>
               <button
@@ -1746,7 +1786,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-[10px] uppercase font-bold opacity-60">
-                  Quick 100% Allocation (Single Stock) or Auto-Detect:
+                  Quick 100% Allocation or Auto-Detect:
                 </span>
                 <div className="flex items-center gap-3">
                   <button
