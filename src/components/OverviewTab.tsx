@@ -13,6 +13,8 @@ import {
   ShoppingBag,
   Activity,
   Sparkles,
+  Bot, 
+  Cpu,
 } from 'lucide-react';
 import {
   calculateFDCurrentValue,
@@ -31,6 +33,7 @@ import {
   SectorWeight,
 } from '../types';
 import type { Database } from 'sql.js';
+import { getHoldingAiExposure } from '../utils/aiExposure';
 
 interface OverviewTabProps {
   db: Database;
@@ -294,6 +297,23 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
     currencyBreakdown[p.currency] =
       (currencyBreakdown[p.currency] || 0) + convertToBase(p.current_price, p.currency);
   });
+
+  // Inside OverviewTab:
+  const { totalAiCapital, aiExposurePct } = useMemo(() => {
+    let aiCapital = 0;
+    let totalEquityFundVal = 0;
+
+    holdingsWithValues
+      .filter((h) => h.category === 'EQUITY' || h.category === 'MUTUAL_FUND')
+      .forEach((h) => {
+        totalEquityFundVal += h.baseVal;
+        const exposurePct = getHoldingAiExposure(h);
+        aiCapital += h.baseVal * (exposurePct / 100);
+      });
+
+    const pct = totalEquityFundVal > 0 ? (aiCapital / totalEquityFundVal) * 100 : 0;
+    return { totalAiCapital: aiCapital, aiExposurePct: pct };
+  }, [holdingsWithValues]);
 
   return (
     <div className="space-y-6">
@@ -640,6 +660,34 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
 
       {/* 4. Look-Through Sector Exposure Breakdown */}
       <div className={`border p-6 rounded-2xl space-y-4 shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+        <div className={`p-4 rounded-2xl border flex items-center justify-between gap-4 ${
+            isDark ? 'bg-indigo-950/20 border-indigo-500/30' : 'bg-indigo-50/70 border-indigo-200'
+          }`}>
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-indigo-500/10 border border-indigo-500/30 text-indigo-400">
+                <Cpu className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold uppercase tracking-wider text-indigo-400">
+                    Estimated AI &amp; Compute Exposure
+                  </span>
+                </div>
+                <p className="text-[11px] opacity-70 mt-0.5">
+                  Look-through weight across hyperscalers, chipmakers, and ETF underlying holdings
+                </p>
+              </div>
+            </div>
+
+            <div className="text-right">
+              <div className="text-xl font-extrabold font-mono text-indigo-400">
+                {isMasked ? '•••%' : `${aiExposurePct.toFixed(1)}%`}
+              </div>
+              <div className="text-[11px] font-mono opacity-60">
+                {formatVal(totalAiCapital)}
+              </div>
+            </div>
+          </div>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <div className="flex items-center gap-2">
