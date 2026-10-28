@@ -43,8 +43,6 @@ export async function importBrokerCsv(
     file.name.endsWith('.xls') ||
     file.type.includes('spreadsheetml');
 
-  // 1. Excel files (Zerodha / Generic holdings snapshot)
-  // FIX: Pass broker as the 2nd argument so S-Zerodha is preserved!
   if (isExcel) {
     const summary = await parseZerodhaExcel(file, broker, db);
     onComplete(summary);
@@ -55,13 +53,14 @@ export async function importBrokerCsv(
   let newTxns = 0;
   let duplicates = 0;
   const errors: string[] = [];
+  const safeBroker = broker.replace(/'/g, "''");
 
   db.run('BEGIN TRANSACTION');
 
   try {
     const lowerBroker = broker.toLowerCase();
 
-    // 1. Avanza (Sweden) - check if it's Avanza or S-Avanza
+    // 1. Avanza (Sweden)
     if (lowerBroker.includes('avanza')) {
       const rows = parseCsvLines(text, ';');
       if (rows.length < 2) throw new Error('Avanza CSV is empty or invalid.');
@@ -120,10 +119,9 @@ export async function importBrokerCsv(
           SUM(CASE WHEN tx_type = 'BUY' THEN quantity * price ELSE 0 END) as total_cost,
           SUM(CASE WHEN tx_type = 'BUY' THEN quantity ELSE 0 END) as buy_qty
         FROM transactions
-        WHERE broker = ?
+        WHERE broker = '${safeBroker}'
         GROUP BY symbol
       `);
-      hStmt.bind([broker]);
 
       let updatedCount = 0;
       while (hStmt.step()) {
@@ -209,10 +207,9 @@ export async function importBrokerCsv(
           SUM(CASE WHEN tx_type = 'BUY' THEN quantity * price ELSE 0 END) as total_cost,
           SUM(CASE WHEN tx_type = 'BUY' THEN quantity ELSE 0 END) as buy_qty
         FROM transactions
-        WHERE broker = ?
+        WHERE broker = '${safeBroker}'
         GROUP BY symbol
       `);
-      hStmt.bind([broker]);
 
       let updatedCount = 0;
       while (hStmt.step()) {
@@ -315,10 +312,9 @@ export async function importBrokerCsv(
           SUM(CASE WHEN tx_type = 'BUY' THEN quantity * price ELSE 0 END) as total_cost,
           SUM(CASE WHEN tx_type = 'BUY' THEN quantity ELSE 0 END) as buy_qty
         FROM transactions
-        WHERE broker = ?
+        WHERE broker = '${safeBroker}'
         GROUP BY symbol, currency
       `);
-      hStmt.bind([broker]);
 
       let updatedCount = 0;
       while (hStmt.step()) {
@@ -403,10 +399,9 @@ export async function importBrokerCsv(
         SUM(CASE WHEN tx_type = 'BUY' THEN quantity * price ELSE 0 END) as total_cost,
         SUM(CASE WHEN tx_type = 'BUY' THEN quantity ELSE 0 END) as buy_qty
       FROM transactions
-      WHERE broker = ?
+      WHERE broker = '${safeBroker}'
       GROUP BY symbol, currency
     `);
-    hStmt.bind([broker]);
 
     let updatedCount = 0;
     while (hStmt.step()) {
