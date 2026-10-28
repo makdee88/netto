@@ -20,7 +20,7 @@ Netto is a local-first, privacy-focused financial dashboard that runs entirely i
 
 ## 🔒 Security Architecture
 
-1. **Zero Telemetry:** Netto has no backend database, user accounts database, or analytics tracking.
+1. **Zero Telemetry:** Netto has no backend database or analytics tracking. User login through supabase is required for session management.
 2. **Local Storage:** The encrypted SQLite binary blob (`.sqlite.enc`) is stored locally in your browser's `localStorage`.
 3. **Bring-Your-Own-Passphrase:** Decryption requires your secret passphrase. If lost, data cannot be recovered by anyone, ensuring complete sovereignty over your financial records.
 
