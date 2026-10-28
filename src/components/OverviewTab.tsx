@@ -28,11 +28,9 @@ import {
   PropertyRow,
   LiabilityRow,
   TransactionRow,
-  GicsSector,
   SectorWeight,
 } from '../types';
 import type { Database } from 'sql.js';
-import { autoClassifyAllHoldings } from '../db/database';
 
 interface OverviewTabProps {
   db: Database;
@@ -41,6 +39,8 @@ interface OverviewTabProps {
   fxRates: Record<string, number>;
   theme: 'dark' | 'light';
   isMasked: boolean;
+  sectorVersion?: number;
+  onAutoClassifySectors?: () => Promise<number>;
   onGoToManage: () => void;
   onOpenPrivacyModal?: () => void;
   onOpenHowToUse?: () => void;
@@ -56,6 +56,8 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
   fxRates,
   theme,
   isMasked,
+  sectorVersion = 0,
+  onAutoClassifySectors,
   onGoToManage,
 }) => {
   const isDark = theme === 'dark';
@@ -63,20 +65,17 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
   const [frequency, setFrequency] = useState<FrequencyMode>('MONTHLY');
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
   const [selectedTx, setSelectedTx] = useState<TransactionRow | null>(null);
-
-  const properties: PropertyRow[] = useMemo(() => getProperties(db), [db]);
-  const liabilities: LiabilityRow[] = useMemo(() => getLiabilities(db), [db]);
-  const allTransactions: TransactionRow[] = useMemo(() => getAllTransactions(db), [db]);
-  const sectorDatabaseMap = useMemo(() => getAllHoldingSectors(db), [db]);
-
+  const [isClassifying, setIsClassifying] = useState<boolean>(false);
   const [classifyNotice, setClassifyNotice] = useState<string>('');
+  const [selectedSectorHolding, setSelectedSectorHolding] = useState<string>('ALL');
 
-  const handleAutoClassifyAll = () => {
-    const count = autoClassifyAllHoldings(db);
-    setClassifyNotice(`Classified ${count} holdings!`);
-    setTimeout(() => setClassifyNotice(''), 3000);
-    window.location.reload(); // Refresh SQLite state into memoized map
-  };
+  const properties: PropertyRow[] = useMemo(() => getProperties(db), [db, holdings]);
+  const liabilities: LiabilityRow[] = useMemo(() => getLiabilities(db), [db, holdings]);
+  const allTransactions: TransactionRow[] = useMemo(() => getAllTransactions(db), [db, holdings]);
+  const sectorDatabaseMap = useMemo(
+    () => getAllHoldingSectors(db),
+    [db, holdings, sectorVersion]
+  );
 
   const formatVal = (amount: number, currency: string = baseCurrency) => {
     if (isMasked) return '••••••';
@@ -95,12 +94,14 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
       const nativeVal = isFD
         ? calculateFDCurrentValue(h)
         : h.category === 'PENSION'
-        ? (h.market_price > 0 ? h.market_price : h.principal || 0)
+        ? h.market_price > 0
+          ? h.market_price
+          : h.principal || 0
         : h.quantity * effectiveMarketPrice;
       const costVal = isFD
         ? h.principal
         : h.category === 'PENSION'
-        ? (h.principal || h.market_price || 0)
+        ? h.principal || h.market_price || 0
         : h.quantity * h.avg_price;
       const baseVal = convertToBase(nativeVal, h.currency);
       const baseCost = convertToBase(costVal, h.currency);
@@ -162,31 +163,39 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
     return Object.entries(summary).sort((a, b) => b[1] - a[1]);
   }, [holdingsWithValues, totalRealEstate]);
 
-  // 3. Look-through Sector Allocation for Equities & Funds
+  const equityAndFundHoldings = useMemo(
+    () => holdingsWithValues.filter((h) => h.category === 'EQUITY' || h.category === 'MUTUAL_FUND'),
+    [holdingsWithValues]
+  );
+
+  // 3. Look-through Sector Allocation (Overall OR Single Fund/Stock)
   const { sectorSummary, totalEquityAndFundVal } = useMemo(() => {
     const summary: Record<string, number> = {};
     let totalVal = 0;
 
-    holdingsWithValues
-      .filter((h) => h.category === 'EQUITY' || h.category === 'MUTUAL_FUND')
-      .forEach((h) => {
-        totalVal += h.baseVal;
-        const weights = sectorDatabaseMap[h.symbol];
+    const targetHoldings =
+      selectedSectorHolding === 'ALL'
+        ? equityAndFundHoldings
+        : equityAndFundHoldings.filter((h) => h.symbol === selectedSectorHolding);
 
-        if (weights && weights.length > 0) {
-          weights.forEach((w: SectorWeight) => {
-            const allocated = h.baseVal * (w.weight_pct / 100);
-            summary[w.sector] = (summary[w.sector] || 0) + allocated;
-          });
-        } else {
-          const fallback = 'Other / Unclassified';
-          summary[fallback] = (summary[fallback] || 0) + h.baseVal;
-        }
-      });
+    targetHoldings.forEach((h) => {
+      totalVal += h.baseVal;
+      const weights = sectorDatabaseMap[h.symbol];
+
+      if (weights && weights.length > 0) {
+        weights.forEach((w: SectorWeight) => {
+          const allocated = h.baseVal * (w.weight_pct / 100);
+          summary[w.sector] = (summary[w.sector] || 0) + allocated;
+        });
+      } else {
+        const fallback = 'Other / Unclassified';
+        summary[fallback] = (summary[fallback] || 0) + h.baseVal;
+      }
+    });
 
     const sorted = Object.entries(summary).sort((a, b) => b[1] - a[1]);
     return { sectorSummary: sorted, totalEquityAndFundVal: totalVal };
-  }, [holdingsWithValues, sectorDatabaseMap]);
+  }, [equityAndFundHoldings, sectorDatabaseMap, selectedSectorHolding]);
 
   const fullTimeline = getHistoricalPortfolioTimeline(
     db,
@@ -631,23 +640,62 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
 
       {/* 4. Look-Through Sector Exposure Breakdown */}
       <div className={`border p-6 rounded-2xl space-y-4 shadow-sm ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <Activity className="w-5 h-5 text-purple-400" />
-            <h2 className="font-bold text-base">Equity &amp; Fund Sector Exposure</h2>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <Activity className="w-5 h-5 text-purple-400" />
+              <h2 className="font-bold text-base">Equity &amp; Fund Sector Exposure</h2>
+            </div>
+            <p className="text-[11px] opacity-60 mt-0.5">
+              Look-through GICS sector weights across ETFs, mutual funds, and direct stocks
+            </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {classifyNotice && (
-              <span className="text-[11px] font-mono text-emerald-400 font-bold">{classifyNotice}</span>
+              <span className="text-[11px] font-mono text-emerald-400 font-bold">
+                {classifyNotice}
+              </span>
             )}
-            <button
-              onClick={handleAutoClassifyAll}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs shadow transition cursor-pointer"
-              title="Scan all holdings and auto-map to standard GICS benchmarks"
+
+            {/* Fund / Stock Filter Dropdown */}
+            <select
+              value={selectedSectorHolding}
+              onChange={(e) => setSelectedSectorHolding(e.target.value)}
+              className={`border rounded-xl px-2.5 py-1.5 text-xs font-semibold cursor-pointer ${
+                isDark ? 'bg-slate-950 border-slate-700 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-800'
+              }`}
+              title="Filter sector breakdown by specific fund or stock"
             >
-              <Sparkles className="w-3.5 h-3.5" /> Auto-Classify All
-            </button>
+              <option value="ALL">All Equities &amp; Funds ({equityAndFundHoldings.length})</option>
+              {equityAndFundHoldings.map((h) => (
+                <option key={h.id} value={h.symbol}>
+                  {h.name} ({h.broker})
+                </option>
+              ))}
+            </select>
+
+            {onAutoClassifySectors && (
+              <button
+                type="button"
+                disabled={isClassifying}
+                onClick={async () => {
+                  try {
+                    setIsClassifying(true);
+                    const count = await onAutoClassifySectors();
+                    setClassifyNotice(`Classified ${count} assets!`);
+                    setTimeout(() => setClassifyNotice(''), 3500);
+                  } finally {
+                    setIsClassifying(false);
+                  }
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white font-bold text-xs shadow transition cursor-pointer"
+                title="Verify and auto-classify all ETFs, mutual funds, and stocks"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>{isClassifying ? 'Classifying...' : 'Auto-Classify All'}</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -663,7 +711,10 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                   </span>
                 </div>
                 <div className={`w-full h-2 rounded-full overflow-hidden ${isDark ? 'bg-slate-950' : 'bg-slate-100'}`}>
-                  <div style={{ width: `${pct}%` }} className="h-full rounded-full bg-purple-500 transition-all duration-500" />
+                  <div
+                    style={{ width: `${pct}%` }}
+                    className="h-full rounded-full bg-purple-500 transition-all duration-500"
+                  />
                 </div>
               </div>
             );
@@ -671,7 +722,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
 
           {sectorSummary.length === 0 && (
             <div className="col-span-full text-center py-6 text-xs opacity-60">
-              No stock or fund sector data available. Use Manage Assets &gt; Edit Sector Breakdown.
+              No stock or fund holdings available to classify.
             </div>
           )}
         </div>

@@ -399,8 +399,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <Globe className="w-4 h-4 text-emerald-500" />
               <span>Developer Website</span>
             </a>
-          </div>
-          <div className="pt-2">
             <a
               href="https://buymeacoffee.com/makdee"
               target="_blank"
@@ -408,7 +406,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-md transition hover:scale-105 cursor-pointer"
             >
               <span>☕</span>
-              <span>Buy me a coffee on BuyMeACoffee</span>
+              <span>Buy me a coffee</span>
             </a>
           </div>
         </div>

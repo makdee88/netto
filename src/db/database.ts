@@ -662,7 +662,7 @@ export function updateHoldingValuation(db: Database, id: number, marketPrice: nu
   );
 }
 
-export const initSectorTable = (db: Database) => {
+export const initSectorTable = (db: Database): void => {
   db.run(`
     CREATE TABLE IF NOT EXISTS holding_sectors (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -672,6 +672,19 @@ export const initSectorTable = (db: Database) => {
       UNIQUE(symbol, sector)
     );
   `);
+};
+
+export const getHoldingSectors = (db: Database, symbol: string): SectorWeight[] => {
+  try {
+    const res = db.exec(`SELECT sector, weight_pct FROM holding_sectors WHERE symbol = ?`, [symbol]);
+    if (!res || res.length === 0) return [];
+    return res[0].values.map((row) => ({
+      sector: row[0] as GicsSector,
+      weight_pct: Number(row[1]),
+    }));
+  } catch {
+    return [];
+  }
 };
 
 export const getAllHoldingSectors = (db: Database): Record<string, SectorWeight[]> => {
@@ -693,20 +706,7 @@ export const getAllHoldingSectors = (db: Database): Record<string, SectorWeight[
   }
 };
 
-export const getHoldingSectors = (db: Database, symbol: string): SectorWeight[] => {
-  try {
-    const res = db.exec(`SELECT sector, weight_pct FROM holding_sectors WHERE symbol = ?`, [symbol]);
-    if (!res || res.length === 0) return [];
-    return res[0].values.map((row) => ({
-      sector: row[0] as GicsSector,
-      weight_pct: Number(row[1]),
-    }));
-  } catch {
-    return [];
-  }
-};
-
-export const saveHoldingSectors = (db: Database, symbol: string, sectors: SectorWeight[]) => {
+export const saveHoldingSectors = (db: Database, symbol: string, sectors: SectorWeight[]): void => {
   db.run(`BEGIN TRANSACTION`);
   db.run(`DELETE FROM holding_sectors WHERE symbol = ?`, [symbol]);
   for (const s of sectors) {
@@ -720,30 +720,29 @@ export const saveHoldingSectors = (db: Database, symbol: string, sectors: Sector
   db.run(`COMMIT`);
 };
 
-import { matchHoldingToSectorWeights } from '../utils/sectorPresets';
-
-export const autoClassifyAllHoldings = (db: Database): number => {
-  const res = db.exec(`SELECT symbol, name FROM holdings WHERE category IN ('EQUITY', 'MUTUAL_FUND')`);
-  if (!res || res.length === 0) return 0;
+export const saveBulkHoldingSectors = (
+  db: Database,
+  sectorMap: Record<string, SectorWeight[]>
+): number => {
+  const entries = Object.entries(sectorMap);
+  if (entries.length === 0) return 0;
 
   db.run(`BEGIN TRANSACTION`);
-  let updatedCount = 0;
-
-  res[0].values.forEach((row) => {
-    const symbol = String(row[0]);
-    const name = String(row[1]);
-    const weights = matchHoldingToSectorWeights(name, symbol);
-
-    db.run(`DELETE FROM holding_sectors WHERE symbol = ?`, [symbol]);
-    weights.forEach((w: SectorWeight) => {
-      db.run(
-        `INSERT INTO holding_sectors (symbol, sector, weight_pct) VALUES (?, ?, ?)`,
-        [symbol, w.sector, w.weight_pct]
-      );
-    });
-    updatedCount++;
-  });
-
+  let count = 0;
+  for (const [symbol, weights] of entries) {
+    if (weights && weights.length > 0) {
+      db.run(`DELETE FROM holding_sectors WHERE symbol = ?`, [symbol]);
+      for (const w of weights) {
+        if (w.weight_pct > 0) {
+          db.run(
+            `INSERT INTO holding_sectors (symbol, sector, weight_pct) VALUES (?, ?, ?)`,
+            [symbol, w.sector, w.weight_pct]
+          );
+        }
+      }
+      count++;
+    }
+  }
   db.run(`COMMIT`);
-  return updatedCount;
+  return count;
 };

@@ -13,6 +13,8 @@ import {
   updateLiabilityBalance,
   updateHoldingValuation,
   refreshFdHoldingsValuations,
+  getAllHoldingSectors,
+  saveBulkHoldingSectors,
 } from './db/database';
 import {
   encryptSqliteBytes,
@@ -24,6 +26,7 @@ import {
 import { importBrokerCsv } from './parsers/csvImporter';
 import { saveBulkFdsToDb } from './parsers/fdImporter';
 import { syncToGoogleDrive, loadFromGoogleDrive } from './sync/googleDrive';
+import { fetchAndClassifyHoldings } from './utils/sectorPresets';
 import { CsvImportResult, CurrencyCode, HoldingRow, AuthMode } from './types';
 
 import { LandingPage } from './components/LandingPage';
@@ -100,6 +103,7 @@ export default function App() {
   const [csvSummary, setCsvSummary] = useState<CsvImportResult | null>(null);
 
   const [holdings, setHoldings] = useState<HoldingRow[]>([]);
+  const [sectorVersion, setSectorVersion] = useState<number>(0);
   const [baseCurrency, setBaseCurrency] = useState<CurrencyCode>('SEK');
   const [fxRates, setFxRates] = useState<Record<string, number>>({
     SEK: 1,
@@ -176,6 +180,26 @@ export default function App() {
       localStorage.setItem(getVaultListKey(session.user.email), JSON.stringify(updatedList));
     }
     refreshHoldings(database);
+  };
+
+  const handleAutoClassifySectors = async (onlyUnclassified = false): Promise<number> => {
+    if (!db) return 0;
+    setStatusMsg('Classifying ETF, fund & stock sectors...');
+    try {
+      const existing = getAllHoldingSectors(db);
+      const classifiedMap = await fetchAndClassifyHoldings(holdings, onlyUnclassified, existing);
+      const updatedCount = saveBulkHoldingSectors(db, classifiedMap);
+      if (updatedCount > 0) {
+        await persistEncryptedVault(db);
+        setSectorVersion((v) => v + 1);
+      }
+      setStatusMsg(`Classified sectors for ${updatedCount} holdings!`);
+      return updatedCount;
+    } catch (err) {
+      console.error('Sector classification error:', err);
+      setStatusMsg('Sector classification completed with defaults');
+      return 0;
+    }
   };
 
   useEffect(() => {
@@ -753,6 +777,8 @@ export default function App() {
             fxRates={fxRates}
             theme={theme}
             isMasked={isMasked}
+            sectorVersion={sectorVersion}
+            onAutoClassifySectors={() => handleAutoClassifySectors(false)}
             onGoToManage={() => handleTabChange('MANAGE')}
             onOpenPrivacyModal={() => setShowSecurityModal(true)}
           />
@@ -763,14 +789,24 @@ export default function App() {
             theme={theme}
             onBackToOverview={() => handleTabChange('OVERVIEW')}
             onSaveVault={async () => {
-              if (db) {
-                await persistEncryptedVault(db);
-              }
+              await persistEncryptedVault(db);
+              setSectorVersion((v) => v + 1);
             }}
             onCsvImport={(file, broker) => {
               return importBrokerCsv(file, broker, db, async (summary) => {
+                // Automatically classify newly imported holdings
+                const stmt = db.prepare('SELECT * FROM holdings ORDER BY broker, name');
+                const currentRows: HoldingRow[] = [];
+                while (stmt.step()) currentRows.push(stmt.getAsObject() as unknown as HoldingRow);
+                stmt.free();
+
+                const existing = getAllHoldingSectors(db);
+                const classifiedMap = await fetchAndClassifyHoldings(currentRows, true, existing);
+                saveBulkHoldingSectors(db, classifiedMap);
+
                 await persistEncryptedVault(db);
                 refreshHoldings(db);
+                setSectorVersion((v) => v + 1);
                 setCsvSummary(summary);
                 setStatusMsg(
                   `Imported ${summary.newTransactionsAdded} txns • ${summary.holdingsUpdated} holdings`
@@ -781,6 +817,7 @@ export default function App() {
               clearBrokerData(db, bName);
               await persistEncryptedVault(db);
               refreshHoldings(db);
+              setSectorVersion((v) => v + 1);
               setStatusMsg(`Cleared history for ${bName}`);
             }}
             onAddFD={async (fd) => {
