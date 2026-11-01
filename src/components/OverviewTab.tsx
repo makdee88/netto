@@ -13,7 +13,6 @@ import {
   ShoppingBag,
   Activity,
   Sparkles,
-  Bot, 
   Cpu,
 } from 'lucide-react';
 import {
@@ -133,7 +132,6 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
   const netWorth = totalAssets - totalLiabilities;
   const debtToAssetRatio = totalAssets > 0 ? (totalLiabilities / totalAssets) * 100 : 0;
 
-  // 1. 5-Way Segregated Asset Class Allocation
   const assetBreakdown: Record<string, number> = {
     'Individual Equities': holdingsWithValues
       .filter((h) => h.category === 'EQUITY')
@@ -150,7 +148,6 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
       .reduce((s, h) => s + h.baseVal, 0),
   };
 
-  // 2. Broker / Institution Exposure Summary
   const brokerBreakdown = useMemo(() => {
     const summary: Record<string, number> = {};
 
@@ -171,7 +168,6 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
     [holdingsWithValues]
   );
 
-  // 3. Look-through Sector Allocation (Overall OR Single Fund/Stock)
   const { sectorSummary, totalEquityAndFundVal } = useMemo(() => {
     const summary: Record<string, number> = {};
     let totalVal = 0;
@@ -298,7 +294,6 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
       (currencyBreakdown[p.currency] || 0) + convertToBase(p.current_price, p.currency);
   });
 
-  // Inside OverviewTab:
   const { totalAiCapital, aiExposurePct } = useMemo(() => {
     let aiCapital = 0;
     let totalEquityFundVal = 0;
@@ -663,31 +658,32 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         <div className={`p-4 rounded-2xl border flex items-center justify-between gap-4 ${
             isDark ? 'bg-indigo-950/20 border-indigo-500/30' : 'bg-indigo-50/70 border-indigo-200'
           }`}>
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-xl bg-indigo-500/10 border border-indigo-500/30 text-indigo-400">
-                <Cpu className="w-5 h-5" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold uppercase tracking-wider text-indigo-400">
-                    Estimated AI &amp; Compute Exposure
-                  </span>
-                </div>
-                <p className="text-[11px] opacity-70 mt-0.5">
-                  Look-through weight across hyperscalers, chipmakers, and ETF underlying holdings
-                </p>
-              </div>
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-indigo-500/10 border border-indigo-500/30 text-indigo-400">
+              <Cpu className="w-5 h-5" />
             </div>
-
-            <div className="text-right">
-              <div className="text-xl font-extrabold font-mono text-indigo-400">
-                {isMasked ? '•••%' : `${aiExposurePct.toFixed(1)}%`}
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold uppercase tracking-wider text-indigo-400">
+                  Estimated AI &amp; Compute Exposure
+                </span>
               </div>
-              <div className="text-[11px] font-mono opacity-60">
-                {formatVal(totalAiCapital)}
-              </div>
+              <p className="text-[11px] opacity-70 mt-0.5">
+                Look-through weight across hyperscalers, chipmakers, and ETF underlying holdings
+              </p>
             </div>
           </div>
+
+          <div className="text-right">
+            <div className="text-xl font-extrabold font-mono text-indigo-400">
+              {isMasked ? '•••%' : `${aiExposurePct.toFixed(1)}%`}
+            </div>
+            <div className="text-[11px] font-mono opacity-60">
+              {formatVal(totalAiCapital)}
+            </div>
+          </div>
+        </div>
+
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <div className="flex items-center gap-2">
@@ -706,7 +702,6 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
               </span>
             )}
 
-            {/* Fund / Stock Filter Dropdown */}
             <select
               value={selectedSectorHolding}
               onChange={(e) => setSelectedSectorHolding(e.target.value)}
@@ -920,88 +915,90 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
             + Add or Edit Holdings
           </button>
         </div>
-        <table className="w-full text-left text-xs">
-          <thead className={`border-b uppercase tracking-wider ${isDark ? 'bg-slate-950/80 border-slate-800 text-slate-400' : 'bg-slate-100 border-slate-200 text-slate-600'}`}>
-            <tr>
-              <th className="p-4">Broker / Bank</th>
-              <th className="p-4">Fund / Stock Name</th>
-              <th className="p-4">Category</th>
-              <th className="p-4">Qty / Principal</th>
-              <th className="p-4">Buy Avg vs Market Price</th>
-              <th className="p-4">Current Market Value</th>
-              <th className="p-4 text-right">Unrealized Gain / Loss</th>
-            </tr>
-          </thead>
-          <tbody className={`divide-y ${isDark ? 'divide-slate-800/70' : 'divide-slate-200'}`}>
-            {holdingsWithValues.length === 0 ? (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[700px] text-left text-xs">
+            <thead className={`border-b uppercase tracking-wider ${isDark ? 'bg-slate-950/80 border-slate-800 text-slate-400' : 'bg-slate-100 border-slate-200 text-slate-600'}`}>
               <tr>
-                <td colSpan={7} className="p-10 text-center opacity-60">
-                  No holdings found. Click <b>Manage &amp; Import Assets</b> above.
-                </td>
+                <th className="p-4">Broker / Bank</th>
+                <th className="p-4">Fund / Stock Name</th>
+                <th className="p-4">Category</th>
+                <th className="p-4">Qty / Principal</th>
+                <th className="p-4">Buy Avg vs Market Price</th>
+                <th className="p-4">Current Market Value</th>
+                <th className="p-4 text-right">Unrealized Gain / Loss</th>
               </tr>
-            ) : (
-              holdingsWithValues.map((h) => {
-                const isFD = h.category === 'FIXED_DEPOSIT';
-                const isPension = h.category === 'PENSION';
-                return (
-                  <tr key={h.id} className={isDark ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}>
-                    <td className="p-4 font-semibold">{h.broker}</td>
-                    <td className="p-4">
-                      <span className={`font-bold text-sm block ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                        {h.name}
-                      </span>
-                      {h.symbol && h.symbol !== h.name && (
-                        <span className="opacity-50 text-[10px] font-mono">ISIN/Ticker: {h.symbol}</span>
-                      )}
-                    </td>
-                    <td className="p-4">
-                      <span
-                        className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
-                          isFD
-                            ? 'bg-emerald-500/15 text-emerald-500'
-                            : isPension
-                            ? 'bg-purple-500/15 text-purple-400'
-                            : h.category === 'MUTUAL_FUND'
-                            ? 'bg-sky-500/15 text-sky-400'
-                            : 'bg-indigo-500/15 text-indigo-500'
-                        }`}
-                      >
-                        {h.category}
-                      </span>
-                    </td>
-                    <td className="p-4 opacity-90">
-                      {isFD || isPension ? formatVal(h.principal || h.market_price, h.currency) : h.quantity.toLocaleString()}
-                    </td>
-                    <td className="p-4 opacity-90">
-                      {isFD ? (
-                        `${h.interest_rate}%`
-                      ) : isPension ? (
-                        <span className="font-semibold text-purple-400">
-                          {isMasked ? '••••' : `${formatVal(h.effectiveMarketPrice, h.currency)}`}
+            </thead>
+            <tbody className={`divide-y ${isDark ? 'divide-slate-800/70' : 'divide-slate-200'}`}>
+              {holdingsWithValues.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="p-10 text-center opacity-60">
+                    No holdings found. Click <b>Manage &amp; Import Assets</b> above.
+                  </td>
+                </tr>
+              ) : (
+                holdingsWithValues.map((h) => {
+                  const isFD = h.category === 'FIXED_DEPOSIT';
+                  const isPension = h.category === 'PENSION';
+                  return (
+                    <tr key={h.id} className={isDark ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}>
+                      <td className="p-4 font-semibold">{h.broker}</td>
+                      <td className="p-4">
+                        <span className={`font-bold text-sm block ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                          {h.name}
                         </span>
-                      ) : (
-                        <div>
-                          <span className="font-semibold">
-                            {isMasked ? '••••' : `${h.effectiveMarketPrice.toFixed(2)} ${h.currency}`}
+                        {h.symbol && h.symbol !== h.name && (
+                          <span className="opacity-50 text-[10px] font-mono">ISIN/Ticker: {h.symbol}</span>
+                        )}
+                      </td>
+                      <td className="p-4">
+                        <span
+                          className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
+                            isFD
+                              ? 'bg-emerald-500/15 text-emerald-500'
+                              : isPension
+                              ? 'bg-purple-500/15 text-purple-400'
+                              : h.category === 'MUTUAL_FUND'
+                              ? 'bg-sky-500/15 text-sky-400'
+                              : 'bg-indigo-500/15 text-indigo-500'
+                          }`}
+                        >
+                          {h.category}
+                        </span>
+                      </td>
+                      <td className="p-4 opacity-90">
+                        {isFD || isPension ? formatVal(h.principal || h.market_price, h.currency) : h.quantity.toLocaleString()}
+                      </td>
+                      <td className="p-4 opacity-90">
+                        {isFD ? (
+                          `${h.interest_rate}%`
+                        ) : isPension ? (
+                          <span className="font-semibold text-purple-400">
+                            {isMasked ? '••••' : `${formatVal(h.effectiveMarketPrice, h.currency)}`}
                           </span>
-                          <span className="block text-[10px] opacity-60">
-                            Avg buy: {isMasked ? '••••' : `${h.avg_price.toFixed(2)} ${h.currency}`}
-                          </span>
-                        </div>
-                      )}
-                    </td>
-                    <td className={`p-4 font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                      {formatVal(h.baseVal)}
-                    </td>
-                    <td className={`p-4 text-right font-semibold ${h.gain >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                      {isMasked ? '••••••' : `${h.gain >= 0 ? '+' : ''}${Math.round(h.gain).toLocaleString()} (${h.gainPct.toFixed(1)}%)`}
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
+                        ) : (
+                          <div>
+                            <span className="font-semibold">
+                              {isMasked ? '••••' : `${h.effectiveMarketPrice.toFixed(2)} ${h.currency}`}
+                            </span>
+                            <span className="block text-[10px] opacity-60">
+                              Avg buy: {isMasked ? '••••' : `${h.avg_price.toFixed(2)} ${h.currency}`}
+                            </span>
+                          </div>
+                        )}
+                      </td>
+                      <td className={`p-4 font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                        {formatVal(h.baseVal)}
+                      </td>
+                      <td className={`p-4 text-right font-semibold ${h.gain >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                        {isMasked ? '••••••' : `${h.gain >= 0 ? '+' : ''}${Math.round(h.gain).toLocaleString()} (${h.gainPct.toFixed(1)}%)`}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {/* 8. Properties Table */}
@@ -1015,48 +1012,50 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
             + Add Property
           </button>
         </div>
-        <table className="w-full text-left text-xs">
-          <thead className={`border-b uppercase tracking-wider ${isDark ? 'bg-slate-950/80 border-slate-800 text-slate-400' : 'bg-slate-100 border-slate-200 text-slate-600'}`}>
-            <tr>
-              <th className="p-4">Property Name</th>
-              <th className="p-4">Type</th>
-              <th className="p-4">Acquisition</th>
-              <th className="p-4">Buy Price</th>
-              <th className="p-4">Current Valuation</th>
-              <th className="p-4 text-right">Gain / Loss</th>
-            </tr>
-          </thead>
-          <tbody className={`divide-y ${isDark ? 'divide-slate-800/70' : 'divide-slate-200'}`}>
-            {properties.length === 0 ? (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[550px] text-left text-xs">
+            <thead className={`border-b uppercase tracking-wider ${isDark ? 'bg-slate-950/80 border-slate-800 text-slate-400' : 'bg-slate-100 border-slate-200 text-slate-600'}`}>
               <tr>
-                <td colSpan={6} className="p-8 text-center opacity-60">
-                  No properties added yet.
-                </td>
+                <th className="p-4">Property Name</th>
+                <th className="p-4">Type</th>
+                <th className="p-4">Acquisition</th>
+                <th className="p-4">Buy Price</th>
+                <th className="p-4">Current Valuation</th>
+                <th className="p-4 text-right">Gain / Loss</th>
               </tr>
-            ) : (
-              properties.map((p) => {
-                const curBase = convertToBase(p.current_price, p.currency);
-                const buyBase = convertToBase(p.buy_price, p.currency);
-                const gain = curBase - buyBase;
-                const gainPct = buyBase > 0 ? (gain / buyBase) * 100 : 0;
-                return (
-                  <tr key={p.id} className={isDark ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}>
-                    <td className="p-4 font-semibold">{p.name}</td>
-                    <td className="p-4 uppercase text-[10px] font-bold">{p.property_type}</td>
-                    <td className="p-4 opacity-80">
-                      {p.buy_month}/{p.buy_year}
-                    </td>
-                    <td className="p-4 opacity-80">{formatVal(buyBase)}</td>
-                    <td className="p-4 font-bold text-emerald-500">{formatVal(curBase)}</td>
-                    <td className={`p-4 text-right font-semibold ${gain >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                      {isMasked ? '••••••' : `${gain >= 0 ? '+' : ''}${Math.round(gain).toLocaleString()} (${gainPct.toFixed(1)}%)`}
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className={`divide-y ${isDark ? 'divide-slate-800/70' : 'divide-slate-200'}`}>
+              {properties.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="p-8 text-center opacity-60">
+                    No properties added yet.
+                  </td>
+                </tr>
+              ) : (
+                properties.map((p) => {
+                  const curBase = convertToBase(p.current_price, p.currency);
+                  const buyBase = convertToBase(p.buy_price, p.currency);
+                  const gain = curBase - buyBase;
+                  const gainPct = buyBase > 0 ? (gain / buyBase) * 100 : 0;
+                  return (
+                    <tr key={p.id} className={isDark ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}>
+                      <td className="p-4 font-semibold">{p.name}</td>
+                      <td className="p-4 uppercase text-[10px] font-bold">{p.property_type}</td>
+                      <td className="p-4 opacity-80">
+                        {p.buy_month}/{p.buy_year}
+                      </td>
+                      <td className="p-4 opacity-80">{formatVal(buyBase)}</td>
+                      <td className="p-4 font-bold text-emerald-500">{formatVal(curBase)}</td>
+                      <td className={`p-4 text-right font-semibold ${gain >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                        {isMasked ? '••••••' : `${gain >= 0 ? '+' : ''}${Math.round(gain).toLocaleString()} (${gainPct.toFixed(1)}%)`}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {/* 9. Liabilities Table */}
@@ -1070,40 +1069,42 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
             + Add Liability
           </button>
         </div>
-        <table className="w-full text-left text-xs">
-          <thead className={`border-b uppercase tracking-wider ${isDark ? 'bg-slate-950/80 border-slate-800 text-slate-400' : 'bg-slate-100 border-slate-200 text-slate-600'}`}>
-            <tr>
-              <th className="p-4">Loan Name</th>
-              <th className="p-4">Type</th>
-              <th className="p-4">Interest Rate</th>
-              <th className="p-4">Original Loan</th>
-              <th className="p-4 text-right">Remaining Balance</th>
-            </tr>
-          </thead>
-          <tbody className={`divide-y ${isDark ? 'divide-slate-800/70' : 'divide-slate-200'}`}>
-            {liabilities.length === 0 ? (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[500px] text-left text-xs">
+            <thead className={`border-b uppercase tracking-wider ${isDark ? 'bg-slate-950/80 border-slate-800 text-slate-400' : 'bg-slate-100 border-slate-200 text-slate-600'}`}>
               <tr>
-                <td colSpan={5} className="p-8 text-center opacity-60">
-                  No liabilities recorded yet.
-                </td>
+                <th className="p-4">Loan Name</th>
+                <th className="p-4">Type</th>
+                <th className="p-4">Interest Rate</th>
+                <th className="p-4">Original Loan</th>
+                <th className="p-4 text-right">Remaining Balance</th>
               </tr>
-            ) : (
-              liabilities.map((l) => {
-                const remBase = convertToBase(l.remaining_balance, l.currency);
-                const origBase = convertToBase(l.total_loan, l.currency);
-                return (
-                  <tr key={l.id} className={isDark ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}>
-                    <td className="p-4 font-semibold">{l.name}</td>
-                    <td className="p-4 uppercase text-[10px] font-bold">{l.liability_type}</td>
-                    <td className="p-4 text-amber-500 font-semibold">{l.interest_rate}%</td>
-                    <td className="p-4 opacity-80">{formatVal(origBase)}</td>
-                    <td className="p-4 text-right font-bold text-rose-500">{formatVal(remBase)}</td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className={`divide-y ${isDark ? 'divide-slate-800/70' : 'divide-slate-200'}`}>
+              {liabilities.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="p-8 text-center opacity-60">
+                    No liabilities recorded yet.
+                  </td>
+                </tr>
+              ) : (
+                liabilities.map((l) => {
+                  const remBase = convertToBase(l.remaining_balance, l.currency);
+                  const origBase = convertToBase(l.total_loan, l.currency);
+                  return (
+                    <tr key={l.id} className={isDark ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}>
+                      <td className="p-4 font-semibold">{l.name}</td>
+                      <td className="p-4 uppercase text-[10px] font-bold">{l.liability_type}</td>
+                      <td className="p-4 text-amber-500 font-semibold">{l.interest_rate}%</td>
+                      <td className="p-4 opacity-80">{formatVal(origBase)}</td>
+                      <td className="p-4 text-right font-bold text-rose-500">{formatVal(remBase)}</td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
