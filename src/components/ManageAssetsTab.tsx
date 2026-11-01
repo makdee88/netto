@@ -267,7 +267,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
               </p>
             </div>
 
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2.5">
               <select
                 value={selectedBroker}
                 onChange={(e) => setSelectedBroker(e.target.value as BrokerType)}
@@ -308,9 +308,9 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={isUploading}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs cursor-pointer shadow-md transition disabled:opacity-50"
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs cursor-pointer shadow-md transition disabled:opacity-50 whitespace-nowrap shrink-0"
               >
-                <Upload className="w-4 h-4" />
+                <Upload className="w-4 h-4 shrink-0" />
                 <span>{isUploading ? 'Parsing File...' : `Upload to [${activeBrokerKey}]`}</span>
               </button>
 
@@ -355,7 +355,7 @@ export const ManageAssetsTab: React.FC<ManageAssetsTabProps> = ({
                     setCsvSummary(null);
                   }
                 }}
-                className="p-2 border border-rose-500/30 text-rose-400 hover:bg-rose-500/10 rounded-xl text-xs font-semibold transition cursor-pointer"
+                className="p-2 border border-rose-500/30 text-rose-400 hover:bg-rose-500/10 rounded-xl text-xs font-semibold transition cursor-pointer shrink-0"
                 title={`Clear ${activeBrokerKey} Ledger`}
               >
                 <Trash2 className="w-4 h-4" />
