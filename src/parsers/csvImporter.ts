@@ -43,6 +43,7 @@ export async function importBrokerCsv(
     file.name.endsWith('.xls') ||
     file.type.includes('spreadsheetml');
 
+  // Excel files (Zerodha / Generic holdings snapshot)
   if (isExcel) {
     const summary = await parseZerodhaExcel(file, broker, db);
     onComplete(summary);
@@ -345,36 +346,75 @@ export async function importBrokerCsv(
       return result;
     }
 
-    // 4. Standard Generic CSV Fallback
-    const delimiter = text.includes(';') ? ';' : ',';
+    // 4. Standard Generic CSV Fallback (Covers SEB, Nordea, DEGIRO, Trade Republic, Trading 212, Generic)
+    const delimiter = text.includes(';') ? ';' : text.includes('\t') ? '\t' : ',';
     const rows = parseCsvLines(text, delimiter);
     if (rows.length < 2) throw new Error('CSV is empty or invalid.');
 
-    const headers = rows[0].map((h) => h.toLowerCase());
-    const symIdx = headers.findIndex((h) => h.includes('symbol') || h.includes('scrip') || h.includes('instrument'));
-    const typeIdx = headers.findIndex((h) => h.includes('type') || h.includes('action'));
-    const qtyIdx = headers.findIndex((h) => h.includes('quantity') || h.includes('qty'));
-    const priceIdx = headers.findIndex((h) => h.includes('price') || h.includes('avg. cost'));
-    const dateIdx = headers.findIndex((h) => h.includes('date'));
-    const currIdx = headers.findIndex((h) => h.includes('currency') || h.includes('valuta'));
+    // Find the header row (skip bank title rows/metadata if any)
+    let headerRowIdx = rows.findIndex((r) =>
+      r.some((cell) =>
+        /symbol|instrument|värdepapper|isin|ticker|shares|antal|product|action/i.test(String(cell || ''))
+      )
+    );
+    if (headerRowIdx === -1) headerRowIdx = 0;
 
-    for (let i = 1; i < rows.length; i++) {
+    const headers = rows[headerRowIdx].map((h) => h.toLowerCase().trim().replace(/['"]/g, ''));
+
+    // Multi-broker column matchers
+    const symIdx = headers.findIndex((h) =>
+      h.includes('ticker') || h.includes('symbol') || h.includes('isin') ||
+      h.includes('instrument') || h.includes('värdepapper') || h.includes('product') ||
+      h.includes('namn') || h.includes('name')
+    );
+    const typeIdx = headers.findIndex((h) =>
+      h.includes('action') || h.includes('transaktionstyp') || h.includes('typ') || h.includes('type')
+    );
+    const qtyIdx = headers.findIndex((h) =>
+      h.includes('no. of shares') || h.includes('shares') || h.includes('quantity') ||
+      h.includes('qty') || h.includes('antal')
+    );
+    const priceIdx = headers.findIndex((h) =>
+      h.includes('price / share') || h.includes('kurs') || h.includes('pris') ||
+      h.includes('price') || h.includes('avg. cost')
+    );
+    const amtIdx = headers.findIndex((h) =>
+      h.includes('total') || h.includes('belopp') || h.includes('amount') || h.includes('värde')
+    );
+    const dateIdx = headers.findIndex((h) =>
+      h.includes('time') || h.includes('date') || h.includes('datum') ||
+      h.includes('bokföringsdag') || h.includes('handelsdag')
+    );
+    const currIdx = headers.findIndex((h) =>
+      h.includes('currency') || h.includes('valuta')
+    );
+
+    for (let i = headerRowIdx + 1; i < rows.length; i++) {
       const r = rows[i];
       if (!r || r.length < 2) continue;
 
       const symbol = (r[symIdx] || '').toUpperCase().trim();
-      if (!symbol) continue;
+      if (!symbol || symbol === 'TOTAL' || symbol === 'SUMMA') continue;
 
-      const rawType = (r[typeIdx] || 'BUY').toUpperCase();
-      const txType = rawType.includes('SELL') ? 'SELL' : 'BUY';
-      const quantity = Math.abs(normalizeNumber(r[qtyIdx]));
+      const rawType = (typeIdx !== -1 && r[typeIdx] ? r[typeIdx] : '').toUpperCase();
+      const rawQty = normalizeNumber(r[qtyIdx]);
+
+      // Infer transaction type: handles Swedish terms + DEGIRO signed quantities
+      let txType = 'BUY';
+      if (rawType.includes('SÄLJ') || rawType.includes('SELL') || rawQty < 0) {
+        txType = 'SELL';
+      } else if (rawType.includes('UTDELNING') || rawType.includes('DIVIDEND')) {
+        txType = 'DIVIDEND';
+      }
+
+      const quantity = Math.abs(rawQty);
       const price = normalizeNumber(r[priceIdx]);
-      const amount = quantity * price;
+      const amount = amtIdx !== -1 && r[amtIdx] ? Math.abs(normalizeNumber(r[amtIdx])) : quantity * price;
       const currency = (currIdx !== -1 && r[currIdx] ? r[currIdx].trim().toUpperCase() : 'SEK');
-      const txDate = (r[dateIdx] || new Date().toISOString().slice(0, 10)).slice(0, 10);
+      const txDate = (dateIdx !== -1 && r[dateIdx] ? r[dateIdx].trim().slice(0, 10) : new Date().toISOString().slice(0, 10));
       const txHash = `${broker}_${symbol}_${txDate}_${txType}_${quantity}_${price}_${currency}`;
 
-      if (quantity <= 0) continue;
+      if (quantity <= 0 && txType !== 'DIVIDEND') continue;
 
       const checkRes = db.exec(`SELECT id FROM transactions WHERE tx_hash = ?`, [txHash]);
       if (checkRes.length > 0 && checkRes[0].values.length > 0) {

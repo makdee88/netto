@@ -4,15 +4,19 @@
 
 export type CurrencyCode = 'SEK' | 'INR' | 'USD' | 'EUR';
 
-export type BrokerType = 
-  | 'Avanza' 
-  | 'Nordnet' 
-  | 'Zerodha' 
-  | 'Groww' 
+export type BrokerType =
+  | 'Avanza'
+  | 'Nordnet'
+  | 'SEB'
+  | 'Nordea'
+  | 'DEGIRO'
+  | 'Trade Republic'
+  | 'Trading 212'
+  | 'Zerodha'
   | 'Kuvera'
-  | 'InteractiveBrokers' 
-  | 'Degiro' 
-  | 'Generic' 
+  | 'Groww'
+  | 'InteractiveBrokers'
+  | 'Generic'
   | string;
 
 export type AuthMode = 'CREATE_OR_UNLOCK' | 'RESTORE_RETURNING';

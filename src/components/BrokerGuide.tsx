@@ -75,6 +75,44 @@ export const BrokerGuide: React.FC<BrokerGuideProps> = ({ broker, isDark }) => {
       ],
       notes: 'Automatically maps investment holdings and mutual fund units.',
     },
+    SEB: {
+      title: 'SEB (Sweden)',
+      steps: [
+        'Log into Internetbanken -> Spara & Placera -> Värdepapper / ISK.',
+        'Go to "Depåöversikt" or "Historik/Transaktioner".',
+        'Click "Exportera" to download as CSV or Excel (.xlsx).',
+      ],
+    },
+    Nordea: {
+      title: 'Nordea (Nordics)',
+      steps: [
+        'Log into Nordea Investor (or Internetbanken -> Spara).',
+        'Go to Transaktioner / Orderhistorik.',
+        'Select your period and click "Exportera transaktioner" (CSV).',
+      ],
+    },
+    DEGIRO: {
+      title: 'DEGIRO (Europe)',
+      steps: [
+        'Log into DEGIRO -> Go to Activity -> Transactions.',
+        'Set date range from account opening to today.',
+        'Click "Export" -> Select CSV.',
+      ],
+    },
+    'Trade Republic': {
+      title: 'Trade Republic',
+      steps: [
+        'Log into Trade Republic Web -> Profile -> Statements.',
+        'Export your transaction activity as CSV.',
+      ],
+    },
+    'Trading 212': {
+      title: 'Trading 212',
+      steps: [
+        'Log into Trading 212 -> Go to History -> Orders.',
+        'Click the Export icon -> Select "All time" -> Export CSV.',
+      ],
+    },
     Generic: {
       title: 'Other / Custom CSV',
       format: 'Standard CSV',
