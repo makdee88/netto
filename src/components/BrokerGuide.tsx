@@ -77,41 +77,56 @@ export const BrokerGuide: React.FC<BrokerGuideProps> = ({ broker, isDark }) => {
     },
     SEB: {
       title: 'SEB (Sweden)',
+      format: 'CSV / Excel (.xlsx)',
+      currency: 'SEK',
       steps: [
         'Log into Internetbanken -> Spara & Placera -> Värdepapper / ISK.',
         'Go to "Depåöversikt" or "Historik/Transaktioner".',
         'Click "Exportera" to download as CSV or Excel (.xlsx).',
       ],
+      notes: 'Handles semicolon-delimited CSVs and standard depå exports.',
     },
     Nordea: {
       title: 'Nordea (Nordics)',
+      format: 'CSV',
+      currency: 'SEK / EUR',
       steps: [
         'Log into Nordea Investor (or Internetbanken -> Spara).',
         'Go to Transaktioner / Orderhistorik.',
         'Select your period and click "Exportera transaktioner" (CSV).',
       ],
+      notes: 'Parses both semicolon and tab-delimited transaction exports.',
     },
     DEGIRO: {
       title: 'DEGIRO (Europe)',
+      format: 'CSV',
+      currency: 'EUR',
       steps: [
         'Log into DEGIRO -> Go to Activity -> Transactions.',
         'Set date range from account opening to today.',
         'Click "Export" -> Select CSV.',
       ],
+      notes: 'Uses signed quantities to distinguish buy and sell orders.',
     },
     'Trade Republic': {
       title: 'Trade Republic',
+      format: 'CSV',
+      currency: 'EUR',
       steps: [
         'Log into Trade Republic Web -> Profile -> Statements.',
         'Export your transaction activity as CSV.',
       ],
+      notes: 'Matches share quantities and fills automatically.',
     },
     'Trading 212': {
       title: 'Trading 212',
+      format: 'CSV',
+      currency: 'EUR / USD / GBP',
       steps: [
         'Log into Trading 212 -> Go to History -> Orders.',
         'Click the Export icon -> Select "All time" -> Export CSV.',
       ],
+      notes: 'Recognizes standard "No. of shares" order history exports.',
     },
     Generic: {
       title: 'Other / Custom CSV',
