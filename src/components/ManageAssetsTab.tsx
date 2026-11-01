@@ -82,11 +82,15 @@ interface ManageAssetsTabProps {
 const BROKER_OPTIONS: { value: BrokerType; label: string }[] = [
   { value: 'Avanza', label: 'Avanza (Sweden)' },
   { value: 'Nordnet', label: 'Nordnet (Nordics)' },
+  { value: 'SEB', label: 'SEB (Sweden)' },
+  { value: 'Nordea', label: 'Nordea (Nordics)' },
+  { value: 'DEGIRO', label: 'DEGIRO (Europe)' },
+  { value: 'Trade Republic', label: 'Trade Republic (Europe)' },
+  { value: 'Trading 212', label: 'Trading 212 (Europe / UK)' },
+  { value: 'InteractiveBrokers', label: 'Interactive Brokers' },
   { value: 'Zerodha', label: 'Zerodha (India)' },
   { value: 'Kuvera', label: 'Kuvera (India - MFs)' },
   { value: 'Groww', label: 'Groww (India)' },
-  { value: 'InteractiveBrokers', label: 'Interactive Brokers' },
-  { value: 'Degiro', label: 'DEGIRO' },
   { value: 'Generic', label: 'Other / Custom File' },
 ];
 
