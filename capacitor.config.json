@@ -2,7 +2,6 @@
   "appId": "xyz.netto.app",
   "appName": "Netto",
   "webDir": "dist",
-  "bundledWebRuntime": false,
   "server": {
     "androidScheme": "https"
   }
