@@ -48,6 +48,40 @@ jobs:
             npx cap add android
           fi
           npx cap sync android
+          
+          # Inject Deep Link Intent Filter for Supabase / Google OAuth into AndroidManifest.xml
+          python3 - << 'EOF'
+          import re
+
+          manifest_path = "android/app/src/main/AndroidManifest.xml"
+          with open(manifest_path, "r", encoding="utf-8") as f:
+              content = f.read()
+
+          intent_filter = """
+              <intent-filter>
+                  <action android:name="android.intent.action.VIEW" />
+                  <category android:name="android.intent.category.DEFAULT" />
+                  <category android:name="android.intent.category.BROWSABLE" />
+                  <data android:scheme="xyz.netto.app" android:host="auth" />
+              </intent-filter>
+          """
+
+          # 1. Add launchMode="singleTask" to MainActivity so returning doesn't spawn duplicate instances
+          content = re.sub(
+              r'(<activity[^>]*android:name="\.MainActivity"[^>]*)>',
+              r'\1 android:launchMode="singleTask">',
+              content
+          )
+
+          # 2. Insert the OAuth intent filter right after the launcher intent filter
+          if "xyz.netto.app" not in content:
+              content = content.replace("</activity>", f"{intent_filter}\n        </activity>")
+              with open(manifest_path, "w", encoding="utf-8") as f:
+                  f.write(content)
+              print("Successfully injected OAuth intent-filter into AndroidManifest.xml")
+          else:
+              print("Intent filter already present.")
+          EOF
 
       - name: Generate Android App Icons (White Background)
         run: |
