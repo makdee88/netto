@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Database as DbIcon, FolderPlus, LogOut, UserCheck, Trash2 } from 'lucide-react';
 
 interface FloatingVaultBarProps {
@@ -26,6 +26,25 @@ export const FloatingVaultBar: React.FC<FloatingVaultBarProps> = ({
 }) => {
   const [isCreating, setIsCreating] = useState(false);
   const [nameInput, setNameInput] = useState('');
+  const [isVisible, setIsVisible] = useState(true);
+
+  // Auto-hide bar when scrolling down, reveal when scrolling up
+  useEffect(() => {
+    let lastScrollY = window.scrollY;
+
+    const handleScroll = () => {
+      const currentScrollY = window.scrollY;
+      if (currentScrollY > lastScrollY && currentScrollY > 60) {
+        setIsVisible(false);
+      } else {
+        setIsVisible(true);
+      }
+      lastScrollY = currentScrollY;
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
 
   const displayName = fullName || email.split('@')[0] || 'User';
   const isDefaultVault = activeVaultName === email;
@@ -52,40 +71,42 @@ export const FloatingVaultBar: React.FC<FloatingVaultBarProps> = ({
   return (
     <aside
       aria-label="User and Vault Session"
-      className={`fixed bottom-5 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-4 py-2 rounded-2xl border shadow-2xl backdrop-blur-md text-xs transition whitespace-nowrap ${
+      className={`fixed bottom-3 sm:bottom-5 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 sm:gap-3 px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-2xl border shadow-2xl backdrop-blur-md text-xs whitespace-nowrap transition-all duration-300 ease-in-out ${
+        isVisible ? 'translate-y-0 opacity-100' : 'translate-y-20 opacity-0 pointer-events-none'
+      } ${
         isDark
           ? 'bg-slate-900/95 border-slate-700/80 text-slate-200 shadow-black/60'
           : 'bg-white/95 border-slate-300 text-slate-800 shadow-slate-400/30'
       }`}
     >
       {/* User Information */}
-      <div className={`flex items-center gap-2 pr-3 border-r ${isDark ? 'border-slate-700/60' : 'border-slate-200'}`}>
+      <div className={`flex items-center gap-1.5 sm:gap-2 pr-2 sm:pr-3 border-r ${isDark ? 'border-slate-700/60' : 'border-slate-200'}`}>
         <div className={`p-1.5 rounded-full shrink-0 ${isDark ? 'bg-emerald-500/20 text-emerald-400' : 'bg-emerald-50 text-emerald-600'}`}>
           <UserCheck className="w-3.5 h-3.5" />
         </div>
-        <div className="flex items-center gap-1.5">
-          <span className={`font-semibold text-xs ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>
+        <div className="flex items-center gap-1">
+          <span className={`font-semibold text-xs max-w-[70px] sm:max-w-none truncate ${isDark ? 'text-slate-100' : 'text-slate-900'}`} title={displayName}>
             {displayName}
           </span>
-          <span className={`text-[11px] max-w-[130px] truncate ${isDark ? 'text-slate-400' : 'text-slate-500'}`} title={email}>
+          <span className={`hidden sm:inline text-[11px] max-w-[130px] truncate ${isDark ? 'text-slate-400' : 'text-slate-500'}`} title={email}>
             ({email})
           </span>
         </div>
       </div>
 
       {/* Vault Switcher & Creator */}
-      <div className={`flex items-center gap-2 pr-3 border-r ${isDark ? 'border-slate-700/60' : 'border-slate-200'}`}>
+      <div className={`flex items-center gap-1.5 sm:gap-2 pr-2 sm:pr-3 border-r ${isDark ? 'border-slate-700/60' : 'border-slate-200'}`}>
         <DbIcon className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-        <span className={`text-[11px] font-medium ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+        <span className={`hidden sm:inline text-[11px] font-medium ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
           Vault:
         </span>
 
         {!isCreating ? (
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1 sm:gap-1.5">
             <select
               value={activeVaultName}
               onChange={(e) => onSwitchVault(e.target.value)}
-              className={`px-2.5 py-1 rounded-xl border font-semibold text-xs cursor-pointer max-w-[150px] truncate transition ${
+              className={`px-2 py-1 rounded-xl border font-semibold text-xs cursor-pointer max-w-[95px] sm:max-w-[150px] truncate transition ${
                 isDark
                   ? 'bg-slate-950 border-slate-700 text-white'
                   : 'bg-slate-50 border-slate-300 text-slate-800'
@@ -123,14 +144,14 @@ export const FloatingVaultBar: React.FC<FloatingVaultBarProps> = ({
             )}
           </div>
         ) : (
-          <form onSubmit={handleSubmit} className="flex items-center gap-1.5">
+          <form onSubmit={handleSubmit} className="flex items-center gap-1 sm:gap-1.5">
             <input
               type="text"
               value={nameInput}
               onChange={(e) => setNameInput(e.target.value)}
               placeholder="Vault name..."
               autoFocus
-              className={`px-2 py-1 rounded-lg border text-xs w-28 ${
+              className={`px-2 py-1 rounded-lg border text-xs w-20 sm:w-28 ${
                 isDark
                   ? 'bg-slate-950 border-slate-700 text-white'
                   : 'bg-white border-slate-300 text-slate-900'
@@ -158,11 +179,11 @@ export const FloatingVaultBar: React.FC<FloatingVaultBarProps> = ({
       {/* Logout */}
       <button
         onClick={onLogout}
-        className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl border border-rose-500/20 bg-rose-500/10 text-rose-500 hover:bg-rose-500 hover:text-white font-semibold text-[11px] transition"
+        className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1 rounded-xl border border-rose-500/20 bg-rose-500/10 text-rose-500 hover:bg-rose-500 hover:text-white font-semibold text-[11px] transition"
         title="Sign out of Supabase & lock database"
       >
         <LogOut className="w-3.5 h-3.5" />
-        <span>Logout</span>
+        <span className="hidden sm:inline">Logout</span>
       </button>
     </aside>
   );
