@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { supabase } from '../supabase';
+import { Capacitor } from '@capacitor/core';
+import { Browser } from '@capacitor/browser';
 import { ShieldCheck, Mail, ArrowLeft, AlertCircle, Loader2 } from 'lucide-react';
 
 interface AuthGateScreenProps {
@@ -17,27 +19,43 @@ export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({ isDark, onBackTo
     setAuthLoading(true);
     setAuthError(null);
 
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider,
-      options: {
-        redirectTo: window.location.origin,
-        // Request Google Drive appdata access directly during initial login
-        scopes:
-          provider === 'google'
-            ? 'https://www.googleapis.com/auth/drive.appdata'
-            : undefined,
-        queryParams:
-          provider === 'google'
-            ? {
-                access_type: 'offline',
-                prompt: 'select_account', // Forces Google to show account selection on re-login
-              }
-            : undefined,
-      },
-    });
+    const isNative = Capacitor.isNativePlatform();
+    const redirectTo = isNative ? 'xyz.netto.app://auth/callback' : window.location.origin;
 
-    if (error) {
-      setAuthError(error.message);
+    try {
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider,
+        options: {
+          redirectTo,
+          // Request Google Drive appdata access directly during initial login
+          scopes:
+            provider === 'google'
+              ? 'https://www.googleapis.com/auth/drive.appdata'
+              : undefined,
+          queryParams:
+            provider === 'google'
+              ? {
+                  access_type: 'offline',
+                  prompt: 'select_account',
+                }
+              : undefined,
+          skipBrowserRedirect: isNative, // Prevents embedded WebView from loading Google directly
+        },
+      });
+
+      if (error) {
+        setAuthError(error.message);
+        setAuthLoading(false);
+        return;
+      }
+
+      // If running inside Capacitor APK, open OAuth URL in system Chrome Custom Tab
+      if (isNative && data?.url) {
+        await Browser.open({ url: data.url, windowName: '_self' });
+      }
+    } catch (err: any) {
+      setAuthError(err?.message || 'Failed to initiate sign-in');
+    } finally {
       setAuthLoading(false);
     }
   };
@@ -49,10 +67,13 @@ export const AuthGateScreen: React.FC<AuthGateScreenProps> = ({ isDark, onBackTo
     setAuthLoading(true);
     setAuthError(null);
 
+    const isNative = Capacitor.isNativePlatform();
+    const emailRedirectTo = isNative ? 'xyz.netto.app://auth/callback' : window.location.origin;
+
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        emailRedirectTo: window.location.origin,
+        emailRedirectTo,
       },
     });
 

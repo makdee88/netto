@@ -2,6 +2,9 @@ import React, { useEffect, useState, useCallback } from 'react';
 import type { Database } from 'sql.js';
 import { Session, AuthChangeEvent } from '@supabase/supabase-js';
 import { supabase } from './supabase';
+import { Capacitor } from '@capacitor/core';
+import { App as CapApp } from '@capacitor/app';
+import { Browser } from '@capacitor/browser';
 import {
   initSectorTable,
   initDatabase,
@@ -125,6 +128,85 @@ export default function App() {
     setSubTab(tab);
     sessionStorage.setItem('netto_sub_tab', tab);
   };
+
+  // =========================================================================
+  // CAPACITOR NATIVE INTEGRATION: Deep Link (OAuth) & Hardware Back Button
+  // =========================================================================
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+
+    let appUrlListener: any;
+    let backButtonListener: any;
+
+    const initCapacitorListeners = async () => {
+      // 1. Intercept OAuth Redirects (xyz.netto.app://auth/callback#access_token=...)
+      appUrlListener = await CapApp.addListener('appUrlOpen', async ({ url }) => {
+        if (url.startsWith('xyz.netto.app://auth')) {
+          try {
+            await Browser.close().catch(() => {});
+
+            // Parse token parameters from hash (#...) or query (?...)
+            const hashIndex = url.indexOf('#');
+            const searchIndex = url.indexOf('?');
+            const rawParams =
+              hashIndex !== -1
+                ? url.substring(hashIndex + 1)
+                : searchIndex !== -1
+                ? url.substring(searchIndex + 1)
+                : '';
+
+            const params = new URLSearchParams(rawParams);
+            const access_token = params.get('access_token');
+            const refresh_token = params.get('refresh_token');
+
+            if (access_token && refresh_token) {
+              setStatusMsg('Completing Google authentication...');
+              const { error } = await supabase.auth.setSession({
+                access_token,
+                refresh_token,
+              });
+
+              if (error) {
+                console.error('[Capacitor Auth Error]:', error.message);
+                setStatusMsg('Auth failed: ' + error.message);
+              } else {
+                handleStepChange('AUTH');
+              }
+            }
+          } catch (err) {
+            console.error('[Capacitor Deep Link Parsing Error]:', err);
+          }
+        }
+      });
+
+      // 2. Handle Android Hardware / Gesture Back Button
+      backButtonListener = await CapApp.addListener('backButton', () => {
+        if (showSecurityModal) return setShowSecurityModal(false);
+        if (showPassModal) return setShowPassModal(false);
+        if (showHowToUseModal) return setShowHowToUseModal(false);
+        if (csvSummary) return setCsvSummary(null);
+
+        if (step === 'DASHBOARD' && subTab === 'MANAGE') {
+          handleTabChange('OVERVIEW');
+          return;
+        }
+
+        if (step === 'AUTH') {
+          handleStepChange('LANDING');
+          return;
+        }
+
+        CapApp.exitApp();
+      });
+    };
+
+    initCapacitorListeners();
+
+    return () => {
+      if (appUrlListener?.remove) appUrlListener.remove();
+      if (backButtonListener?.remove) backButtonListener.remove();
+    };
+  }, [showSecurityModal, showPassModal, showHowToUseModal, csvSummary, step, subTab]);
 
   const refreshHoldings = useCallback(
     (database: Database) => {
@@ -554,9 +636,6 @@ export default function App() {
           isDark ? 'border-slate-800 bg-slate-900/80' : 'border-slate-200 bg-white shadow-sm'
         }`}
       >
-        {/* ========================================================= */}
-        {/* LINE 1: Branding (Left) <---> Navigation Tabs (Right)     */}
-        {/* ========================================================= */}
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-2.5">
             <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
@@ -599,9 +678,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* ========================================================= */}
-        {/* LINE 2: Action Buttons (Left) <---> Info & Controls (Right)*/}
-        {/* ========================================================= */}
         <div className="w-full flex flex-wrap items-center justify-between gap-3 pt-2.5 border-t border-slate-800/30">
           <div className="flex flex-wrap items-center gap-2">
             <button
@@ -794,7 +870,6 @@ export default function App() {
             }}
             onCsvImport={(file, broker) => {
               return importBrokerCsv(file, broker, db, async (summary) => {
-                // Automatically classify newly imported holdings
                 const stmt = db.prepare('SELECT * FROM holdings ORDER BY broker, name');
                 const currentRows: HoldingRow[] = [];
                 while (stmt.step()) currentRows.push(stmt.getAsObject() as unknown as HoldingRow);
@@ -962,7 +1037,7 @@ export default function App() {
           onClose={() => setShowPassModal(false)}
           onUpdatePassphrase={async (oldPass, newPass, confirmPass) => {
             if (oldPass !== passphrase) throw new Error('Incorrect current passphrase.');
-            if (newPass.length < 6) throw new Error('Passphrase must be >= 6 chars.');
+            if (newPass.length < 6) throw new Error('Passphrase must be at least 6 characters.');
             if (newPass !== confirmPass) throw new Error('Passphrases do not match.');
             if (!db) throw new Error('No DB loaded.');
             const newlyEncrypted = await encryptSqliteBytes(db.export(), newPass);
