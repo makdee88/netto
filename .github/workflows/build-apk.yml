@@ -4,13 +4,20 @@ on:
   workflow_dispatch:
     inputs:
       version_name:
-        description: 'Version Name (e.g. 1.0.0)'
-        required: false
+        description: 'Release Version (e.g. 1.0.0)'
+        required: true
         default: '1.0.0'
+      release_notes:
+        description: 'Release Notes / Changelog'
+        required: false
+        default: 'Manual release build of Netto mobile APK.'
+
+permissions:
+  contents: write
 
 jobs:
   build:
-    name: Build & Sign Android APK
+    name: Build, Sign & Publish Android APK
     runs-on: ubuntu-latest
 
     steps:
@@ -28,16 +35,13 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      # - name: Setup Android SDK
-      #   uses: android-actions/setup-android@v3
-
       - name: Install Dependencies
         run: npm install
 
       - name: Build Web Application
         run: npm run build
 
-      - name: Sync Capacitor Android
+      - name: Sync / Add Capacitor Android
         run: |
           if [ ! -d "android" ]; then
             echo "android directory missing, adding android platform..."
@@ -60,15 +64,13 @@ jobs:
             exit 1
           fi
 
-          # Decode base64 cleanly using printf into android/release.keystore
           printf "%s" "$RELEASE_KEYSTORE_BASE64" | base64 --decode > android/release.keystore
 
-          # Verify file size is not zero
           KEYSTORE_SIZE=$(wc -c < android/release.keystore)
           echo "Keystore size: $KEYSTORE_SIZE bytes"
 
           if [ "$KEYSTORE_SIZE" -le 100 ]; then
-            echo "ERROR: Decoded keystore file is empty or too small ($KEYSTORE_SIZE bytes)."
+            echo "ERROR: Decoded keystore file is too small ($KEYSTORE_SIZE bytes)."
             exit 1
           fi
 
@@ -83,31 +85,35 @@ jobs:
           ALIGNED_APK="android/app/build/outputs/apk/release/app-release-aligned.apk"
           SIGNED_APK="android/app/build/outputs/apk/release/netto-release.apk"
 
-          # 1. Zipalign
+          # 1. Zipalign APK
           $BUILD_TOOLS_DIR/zipalign -v -p 4 $UNSIGNED_APK $ALIGNED_APK
 
-          # 2. Sign
+          # 2. Sign APK with apksigner
           $BUILD_TOOLS_DIR/apksigner sign --ks android/release.keystore \
             --ks-pass pass:"$KEYSTORE_PASSWORD" \
             --key-pass pass:"$KEY_PASSWORD" \
             --ks-key-alias "$KEY_ALIAS" \
             --out $SIGNED_APK $ALIGNED_APK
 
-          # 3. Verify
+          # 3. Verify signature
           $BUILD_TOOLS_DIR/apksigner verify $SIGNED_APK
 
-      - name: Prepare Final Artifact Path
-        id: artifact_path
-        run: |
-          if [ -f "android/app/build/outputs/apk/release/netto-release.apk" ]; then
-            echo "apk_path=android/app/build/outputs/apk/release/netto-release.apk" >> $GITHUB_OUTPUT
-          else
-            echo "apk_path=android/app/build/outputs/apk/release/app-release-unsigned.apk" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Upload APK Artifact
+      - name: Upload APK as Workflow Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: netto-release-apk
-          path: ${{ steps.artifact_path.outputs.apk_path }}
+          name: netto-v${{ github.event.inputs.version_name }}-apk
+          path: android/app/build/outputs/apk/release/netto-release.apk
           retention-days: 14
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.event.inputs.version_name }}
+          name: Netto v${{ github.event.inputs.version_name }}
+          body: ${{ github.event.inputs.release_notes }}
+          draft: false
+          prerelease: false
+          files: |
+            android/app/build/outputs/apk/release/netto-release.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
