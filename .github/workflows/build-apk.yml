@@ -52,16 +52,28 @@ jobs:
           ./gradlew assembleRelease --no-daemon
 
       - name: Decode Signing Keystore
-        if: env.RELEASE_KEYSTORE_BASE64 != ''
         env:
           RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
         run: |
-          echo "$RELEASE_KEYSTORE_BASE64" | base64 -d > android/release.keystore
+          if [ -z "$RELEASE_KEYSTORE_BASE64" ]; then
+            echo "ERROR: RELEASE_KEYSTORE_BASE64 secret is not defined or empty!"
+            exit 1
+          fi
+
+          # Decode base64 cleanly using printf into android/release.keystore
+          printf "%s" "$RELEASE_KEYSTORE_BASE64" | base64 --decode > android/release.keystore
+
+          # Verify file size is not zero
+          KEYSTORE_SIZE=$(wc -c < android/release.keystore)
+          echo "Keystore size: $KEYSTORE_SIZE bytes"
+
+          if [ "$KEYSTORE_SIZE" -le 100 ]; then
+            echo "ERROR: Decoded keystore file is empty or too small ($KEYSTORE_SIZE bytes)."
+            exit 1
+          fi
 
       - name: Sign Release APK
-        if: env.RELEASE_KEYSTORE_BASE64 != ''
         env:
-          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
@@ -71,17 +83,17 @@ jobs:
           ALIGNED_APK="android/app/build/outputs/apk/release/app-release-aligned.apk"
           SIGNED_APK="android/app/build/outputs/apk/release/netto-release.apk"
 
-          # 1. Zipalign APK
+          # 1. Zipalign
           $BUILD_TOOLS_DIR/zipalign -v -p 4 $UNSIGNED_APK $ALIGNED_APK
 
-          # 2. Sign APK with apksigner
+          # 2. Sign
           $BUILD_TOOLS_DIR/apksigner sign --ks android/release.keystore \
             --ks-pass pass:"$KEYSTORE_PASSWORD" \
             --key-pass pass:"$KEY_PASSWORD" \
             --ks-key-alias "$KEY_ALIAS" \
             --out $SIGNED_APK $ALIGNED_APK
 
-          # 3. Verify signature
+          # 3. Verify
           $BUILD_TOOLS_DIR/apksigner verify $SIGNED_APK
 
       - name: Prepare Final Artifact Path
