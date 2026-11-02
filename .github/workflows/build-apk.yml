@@ -39,6 +39,10 @@ jobs:
 
       - name: Sync Capacitor Android
         run: |
+          if [ ! -d "android" ]; then
+            echo "android directory missing, adding android platform..."
+            npx cap add android
+          fi
           npx cap sync android
 
       - name: Build Android Release APK
