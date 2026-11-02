@@ -56,6 +56,27 @@ jobs:
             --iconBackgroundColor '#ffffff' \
             --iconBackgroundColorDark '#ffffff'
 
+          # Fix AAPT missing background resource for adaptive icons
+          mkdir -p android/app/src/main/res/drawable
+          cat << 'EOF' > android/app/src/main/res/drawable/ic_launcher_background.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="108dp"
+              android:height="108dp"
+              android:viewportWidth="108"
+              android:viewportHeight="108">
+              <path
+                  android:fillColor="#FFFFFF"
+                  android:pathData="M0,0h108v108h-108z" />
+          </vector>
+          EOF
+
+          # Point adaptive XMLs to @drawable/ic_launcher_background if referencing mipmap
+          sed -i 's|@mipmap/ic_launcher_background|@drawable/ic_launcher_background|g' \
+            android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml || true
+          sed -i 's|@mipmap/ic_launcher_background|@drawable/ic_launcher_background|g' \
+            android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml || true
+
       - name: Build Android Release APK
         working-directory: android
         run: |
