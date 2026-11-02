@@ -49,38 +49,66 @@ jobs:
           fi
           npx cap sync android
           
-          # Inject Deep Link Intent Filter for Supabase / Google OAuth into AndroidManifest.xml
+          # Safely inject OAuth Intent Filter into AndroidManifest.xml using ElementTree
           python3 - << 'EOF'
-          import re
+          import xml.etree.ElementTree as ET
 
           manifest_path = "android/app/src/main/AndroidManifest.xml"
-          with open(manifest_path, "r", encoding="utf-8") as f:
-              content = f.read()
+          
+          # Register the Android XML namespace so tags aren't prefixed with ns0:
+          ET.register_namespace('android', 'http://schemas.android.com/apk/res/android')
+          
+          tree = ET.parse(manifest_path)
+          root = tree.getroot()
+          
+          application = root.find('application')
+          if application is None:
+              raise Exception("Could not find <application> tag in manifest")
 
-          intent_filter = """
-              <intent-filter>
-                  <action android:name="android.intent.action.VIEW" />
-                  <category android:name="android.intent.category.DEFAULT" />
-                  <category android:name="android.intent.category.BROWSABLE" />
-                  <data android:scheme="xyz.netto.app" android:host="auth" />
-              </intent-filter>
-          """
+          # Find MainActivity
+          main_activity = None
+          for activity in application.findall('activity'):
+              # Look for .MainActivity or fully qualified name
+              name = activity.attrib.get('{http://schemas.android.com/apk/res/android}name', '')
+              if name in ('.MainActivity', 'MainActivity') or name.endswith('.MainActivity'):
+                  main_activity = activity
+                  break
 
-          # 1. Add launchMode="singleTask" to MainActivity so returning doesn't spawn duplicate instances
-          content = re.sub(
-              r'(<activity[^>]*android:name="\.MainActivity"[^>]*)>',
-              r'\1 android:launchMode="singleTask">',
-              content
-          )
+          if main_activity is None:
+              raise Exception("Could not find MainActivity in AndroidManifest.xml")
 
-          # 2. Insert the OAuth intent filter right after the launcher intent filter
-          if "xyz.netto.app" not in content:
-              content = content.replace("</activity>", f"{intent_filter}\n        </activity>")
-              with open(manifest_path, "w", encoding="utf-8") as f:
-                  f.write(content)
+          # Ensure singleTask launchMode (won't duplicate attribute)
+          main_activity.set('{http://schemas.android.com/apk/res/android}launchMode', 'singleTask')
+
+          # Check if scheme already exists
+          scheme_exists = False
+          for intent in main_activity.findall('intent-filter'):
+              for data in intent.findall('data'):
+                  if data.attrib.get('{http://schemas.android.com/apk/res/android}scheme') == 'xyz.netto.app':
+                      scheme_exists = True
+                      break
+
+          if not scheme_exists:
+              # Create:
+              # <intent-filter>
+              #     <action android:name="android.intent.action.VIEW" />
+              #     <category android:name="android.intent.category.DEFAULT" />
+              #     <category android:name="android.intent.category.BROWSABLE" />
+              #     <data android:scheme="xyz.netto.app" android:host="auth" />
+              # </intent-filter>
+              new_intent = ET.SubElement(main_activity, 'intent-filter')
+              ET.SubElement(new_intent, 'action', {'{http://schemas.android.com/apk/res/android}name': 'android.intent.action.VIEW'})
+              ET.SubElement(new_intent, 'category', {'{http://schemas.android.com/apk/res/android}name': 'android.intent.category.DEFAULT'})
+              ET.SubElement(new_intent, 'category', {'{http://schemas.android.com/apk/res/android}name': 'android.intent.category.BROWSABLE'})
+              ET.SubElement(new_intent, 'data', {
+                  '{http://schemas.android.com/apk/res/android}scheme': 'xyz.netto.app',
+                  '{http://schemas.android.com/apk/res/android}host': 'auth'
+              })
+              
+              tree.write(manifest_path, encoding='utf-8', xml_declaration=True)
               print("Successfully injected OAuth intent-filter into AndroidManifest.xml")
           else:
-              print("Intent filter already present.")
+              print("Intent filter already present, skipping.")
           EOF
 
       - name: Generate Android App Icons (White Background)
