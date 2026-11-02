@@ -38,6 +38,13 @@ jobs:
       - name: Install Dependencies
         run: npm install
 
+      - name: Generate Android App Icons (White Background)
+        run: |
+          mkdir -p assets
+          npx --yes @capacitor/assets generate --android \
+            --iconBackgroundColor '#ffffff' \
+            --iconBackgroundColorDark '#ffffff'
+
       - name: Build Web Application
         run: npm run build
 
