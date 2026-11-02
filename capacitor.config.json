@@ -3,6 +3,12 @@
   "appName": "Netto",
   "webDir": "dist",
   "server": {
-    "androidScheme": "https"
+    "url": "https://netto.713130.xyz",
+    "cleartext": false,
+    "androidScheme": "https",
+    "allowNavigation": [
+      "netto.713130.xyz",
+      "*.713130.xyz"
+    ]
   }
 }
