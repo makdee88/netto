@@ -89,24 +89,18 @@ jobs:
                       break
 
           if not scheme_exists:
-              # Create:
-              # <intent-filter>
-              #     <action android:name="android.intent.action.VIEW" />
-              #     <category android:name="android.intent.category.DEFAULT" />
-              #     <category android:name="android.intent.category.BROWSABLE" />
-              #     <data android:scheme="xyz.netto.app" android:host="auth" />
-              # </intent-filter>
               new_intent = ET.SubElement(main_activity, 'intent-filter')
               ET.SubElement(new_intent, 'action', {'{http://schemas.android.com/apk/res/android}name': 'android.intent.action.VIEW'})
               ET.SubElement(new_intent, 'category', {'{http://schemas.android.com/apk/res/android}name': 'android.intent.category.DEFAULT'})
               ET.SubElement(new_intent, 'category', {'{http://schemas.android.com/apk/res/android}name': 'android.intent.category.BROWSABLE'})
+              
+              # Matches any xyz.netto.app:// URL (both auth and oauth/gdrive)
               ET.SubElement(new_intent, 'data', {
-                  '{http://schemas.android.com/apk/res/android}scheme': 'xyz.netto.app',
-                  '{http://schemas.android.com/apk/res/android}host': 'auth'
+                  '{http://schemas.android.com/apk/res/android}scheme': 'xyz.netto.app'
               })
               
               tree.write(manifest_path, encoding='utf-8', xml_declaration=True)
-              print("Successfully injected OAuth intent-filter into AndroidManifest.xml")
+              print("Successfully injected universal OAuth intent-filter into AndroidManifest.xml")
           else:
               print("Intent filter already present, skipping.")
           EOF

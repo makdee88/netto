@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Connecting Netto to Google Drive...</title>
+</head>
+<body style="background:#020617;color:#94a3b8;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;">
+  <div style="text-align:center;">
+    <p style="font-size:14px;">Connecting to Google Drive, returning to Netto...</p>
+  </div>
+  <script>
+    const hash = window.location.hash;
+
+    // 1. Android Native Wrapper Bounce
+    // If running inside the custom tab, this immediately opens Netto via deep link:
+    window.location.href = "xyz.netto.app://oauth/gdrive" + hash;
+
+    // 2. Desktop Web Popup Communication
+    // If running in a desktop browser popup window, post the hash back to the opener:
+    if (window.opener) {
+      window.opener.postMessage({ type: 'NETTO_GDRIVE_AUTH', hash }, window.location.origin);
+      setTimeout(() => {
+        window.close();
+      }, 300);
+    }
+  </script>
+</body>
+</html>

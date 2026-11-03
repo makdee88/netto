@@ -6,6 +6,12 @@ import { Capacitor } from '@capacitor/core';
 import { App as CapApp } from '@capacitor/app';
 import { Browser } from '@capacitor/browser';
 import {
+  getStoredGoogleDriveToken,
+  storeGoogleDriveToken,
+  launchGoogleDriveAuth,
+  GDRIVE_TOKEN_KEY,
+} from './auth/googleDriveAuth';
+import {
   initSectorTable,
   initDatabase,
   recordSnapshot,
@@ -140,12 +146,34 @@ export default function App() {
 
     const initCapacitorListeners = async () => {
       // 1. Intercept OAuth Redirects (xyz.netto.app://auth/callback#access_token=...)
-      appUrlListener = await CapApp.addListener('appUrlOpen', async ({ url }) => {
+    appUrlListener = await CapApp.addListener('appUrlOpen', async ({ url }) => {
+        // Handle Google Drive Auth Callback
+        if (url.startsWith('xyz.netto.app://oauth/gdrive')) {
+          try {
+            await Browser.close().catch(() => {});
+            const hashIndex = url.indexOf('#');
+            if (hashIndex !== -1) {
+              const rawParams = url.substring(hashIndex + 1);
+              const params = new URLSearchParams(rawParams);
+              const accessToken = params.get('access_token');
+              const expiresIn = Number(params.get('expires_in') || '3600');
+
+              if (accessToken) {
+                storeGoogleDriveToken(accessToken, expiresIn);
+                setGoogleToken(accessToken);
+                setStatusMsg('Google Drive connected!');
+              }
+            }
+          } catch (err) {
+            console.error('[Google Drive Deep Link Error]:', err);
+          }
+          return;
+        }
+
+        // Handle Supabase Login Callback
         if (url.startsWith('xyz.netto.app://auth')) {
           try {
             await Browser.close().catch(() => {});
-
-            // Parse token parameters from hash (#...) or query (?...)
             const hashIndex = url.indexOf('#');
             const searchIndex = url.indexOf('?');
             const rawParams =
@@ -160,22 +188,19 @@ export default function App() {
             const refresh_token = params.get('refresh_token');
 
             if (access_token && refresh_token) {
-              setStatusMsg('Completing Google authentication...');
               const { error } = await supabase.auth.setSession({
                 access_token,
                 refresh_token,
               });
 
-              if (error) {
-                console.error('[Capacitor Auth Error]:', error.message);
-                setStatusMsg('Auth failed: ' + error.message);
-              } else {
+              if (!error) {
                 handleStepChange('AUTH');
               }
             }
           } catch (err) {
-            console.error('[Capacitor Deep Link Parsing Error]:', err);
+            console.error('[Supabase Auth Deep Link Error]:', err);
           }
+          return;
         }
       });
 
@@ -393,72 +418,49 @@ export default function App() {
   };
 
   const withGoogleAuth = async (action: (token: string) => Promise<void>) => {
-    const requestFreshToken = () => {
-      if (!window.google?.accounts?.oauth2) {
-        alert(
-          'Google Identity Services library is not loaded. Ensure accounts.google.com/gsi/client is included in index.html.'
-        );
-        setStatusMsg('Google Auth client unavailable');
-        return;
-      }
+      let token = getStoredGoogleDriveToken();
 
-      try {
-        const client = window.google.accounts.oauth2.initTokenClient({
-          client_id: GOOGLE_CLIENT_ID,
-          scope: 'https://www.googleapis.com/auth/drive.appdata',
-          callback: async (res: any) => {
-            if (res.error) {
-              console.error('Google token error:', res);
-              alert(`Google Drive permission error: ${res.error_description || res.error}`);
-              setStatusMsg('Google Drive access rejected');
-              return;
-            }
-            if (res.access_token) {
-              setGoogleToken(res.access_token);
-              sessionStorage.setItem(GDRIVE_TOKEN_KEY, res.access_token);
-              try {
-                await action(res.access_token);
-              } catch (innerErr: any) {
-                console.error('Action failed with fresh token:', innerErr);
-                alert(`Drive operation failed: ${innerErr?.message || innerErr}`);
-              }
-            }
-          },
-        });
-
-        client.requestAccessToken({ prompt: 'consent' });
-      } catch (err: any) {
-        console.error('Failed to trigger Google Token Client:', err);
-        alert(`Google Auth Error: ${err?.message || err}`);
-      }
-    };
-
-    const token =
-      googleToken ||
-      session?.provider_token ||
-      sessionStorage.getItem(GDRIVE_TOKEN_KEY);
-
-    if (token) {
-      try {
-        await action(token);
-        return;
-      } catch (err: any) {
-        const errMsg = String(err?.message || err);
-        if (errMsg.includes('INSUFFICIENT_PERMISSIONS') || errMsg.includes('403') || errMsg.includes('401')) {
-          console.warn('Cached token lacks Drive permissions. Requesting explicit consent...', err);
-          sessionStorage.removeItem(GDRIVE_TOKEN_KEY);
-          setGoogleToken(null);
-          requestFreshToken();
+      // If no valid or unexpired token exists, launch the standalone Google Drive OAuth flow
+      if (!token) {
+        setStatusMsg('Connecting to Google Drive...');
+        try {
+          const webToken = await launchGoogleDriveAuth();
+          if (webToken) {
+            token = webToken;
+            setGoogleToken(webToken);
+          } else {
+            // On Android native, the Chrome Custom Tab launches and returns via deep link
+            setStatusMsg('Google Drive connected! Tap button again to proceed.');
+            return;
+          }
+        } catch (err: any) {
+          console.error('Google Drive auth error:', err);
+          alert(`Google Drive connection failed: ${err?.message || err}`);
+          setStatusMsg('Drive connection rejected');
           return;
         }
-        console.error('Drive action error:', err);
-        alert(`Drive error: ${errMsg}`);
-        return;
       }
-    }
 
-    requestFreshToken();
-  };
+      // Execute the backup / restore operation
+      try {
+        await action(token);
+      } catch (err: any) {
+        const errMsg = String(err?.message || err);
+        if (
+          errMsg.includes('401') ||
+          errMsg.includes('403') ||
+          errMsg.includes('INSUFFICIENT_PERMISSIONS')
+        ) {
+          sessionStorage.removeItem(GDRIVE_TOKEN_KEY);
+          setGoogleToken(null);
+          setStatusMsg('Drive session expired. Reconnecting...');
+          await launchGoogleDriveAuth();
+        } else {
+          console.error('Drive action error:', err);
+          alert(`Drive error: ${errMsg}`);
+        }
+      }
+    };
 
   const handleUnlockOrCreate = async (
     passInput: string,
