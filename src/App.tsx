@@ -709,10 +709,14 @@ export default function App() {
         </div>
 
         {/* ========================================================= */}
-        {/* ROW 2: Action Buttons & Secondary Controls               */}
+        {/* ROW 2: Balanced 4x2 Action Grid (Mobile) / Flex (Desktop)  */}
         {/* ========================================================= */}
-        <div className="w-full flex flex-wrap items-center justify-between gap-2 sm:gap-3 pt-2 sm:pt-2.5 border-t border-slate-800/30">
-          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+        <div className="w-full pt-2.5 border-t border-slate-800/30">
+          <div className="grid grid-cols-4 md:flex md:flex-wrap md:items-center md:justify-between gap-1.5 sm:gap-2 text-xs font-semibold">
+            
+            {/* --- ROW 1 ON MOBILE (Operations) --- */}
+            
+            {/* 1. Fetch Prices */}
             <button
               onClick={async () => {
                 const symbols = holdings
@@ -747,21 +751,23 @@ export default function App() {
                     db.run('COMMIT');
                     await persistEncryptedVault(db);
                   }
-                  setStatusMsg('Live market prices updated!');
+                  setStatusMsg('Live prices updated!');
                 } catch {
                   setStatusMsg('Using cached prices');
                 }
               }}
-              className="flex items-center gap-1 sm:gap-1.5 bg-blue-600 hover:bg-blue-500 text-white px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold cursor-pointer shadow-sm transition"
+              className="flex items-center justify-center gap-1 bg-blue-600 hover:bg-blue-500 text-white h-8 px-2 rounded-xl shadow-sm transition"
               title="Fetch latest stock quotes & exchange rates"
             >
-              <RefreshCw className="w-3.5 h-3.5" /> <span>Prices</span>
+              <RefreshCw className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">Prices</span>
             </button>
 
+            {/* 2. Base Currency */}
             <select
               value={baseCurrency}
               onChange={(e) => setBaseCurrency(e.target.value as CurrencyCode)}
-              className="border border-slate-700/60 rounded-xl px-2 py-1.5 text-xs font-semibold bg-transparent cursor-pointer"
+              className="flex items-center justify-center text-center border border-slate-700/60 rounded-xl h-8 px-1 bg-transparent font-semibold cursor-pointer text-xs"
               title="Display currency"
             >
               <option value="SEK">SEK</option>
@@ -770,6 +776,7 @@ export default function App() {
               <option value="EUR">EUR</option>
             </select>
 
+            {/* 3. Google Drive Sync */}
             <button
               onClick={() =>
                 withGoogleAuth(async (token) => {
@@ -779,12 +786,14 @@ export default function App() {
                   setStatusMsg(msg);
                 })
               }
-              className="flex items-center gap-1 sm:gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold shadow cursor-pointer transition"
+              className="flex items-center justify-center gap-1 bg-indigo-600 hover:bg-indigo-500 text-white h-8 px-2 rounded-xl shadow transition"
               title="Save encrypted snapshot to Google Drive AppData"
             >
-              <CloudUpload className="w-3.5 h-3.5" /> <span className="hidden xs:inline sm:inline">Save to Drive</span><span className="xs:hidden sm:hidden inline">Drive</span>
+              <CloudUpload className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">Drive</span>
             </button>
 
+            {/* 4. Local Backup */}
             <button
               onClick={async () => {
                 if (!db) return;
@@ -792,67 +801,77 @@ export default function App() {
                 downloadEncryptedBlob(enc, activeVaultName);
                 setStatusMsg('Encrypted backup exported!');
               }}
-              className="flex items-center gap-1 sm:gap-1.5 border border-slate-700/70 hover:bg-slate-800 text-slate-200 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold cursor-pointer transition"
+              className="flex items-center justify-center gap-1 border border-slate-700/70 hover:bg-slate-800 text-slate-200 h-8 px-2 rounded-xl transition"
               title="Download encrypted .sqlite.enc backup to local disk"
             >
-              <FileDown className="w-3.5 h-3.5 text-indigo-400" /> <span className="hidden xs:inline sm:inline">Backup File</span><span className="xs:hidden sm:hidden inline">Backup</span>
+              <FileDown className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+              <span className="truncate">Backup</span>
             </button>
-          </div>
 
-          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+            {/* --- ROW 2 ON MOBILE (Utilities & Info) --- */}
+
+            {/* 5. Mask / Privacy Toggle */}
             <button
               onClick={() => setIsMasked(!isMasked)}
-              className={`px-2.5 sm:px-3 py-1.5 rounded-xl border transition flex items-center gap-1 sm:gap-1.5 text-xs font-semibold cursor-pointer ${
+              className={`flex items-center justify-center gap-1 h-8 px-2 rounded-xl border transition ${
                 isMasked
                   ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
                   : 'bg-indigo-600 border-indigo-500 text-white shadow-sm'
               }`}
               title="Toggle Privacy Mask"
             >
-              {isMasked ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-              <span>{isMasked ? 'Masked' : 'Visible'}</span>
+              {isMasked ? <EyeOff className="w-3.5 h-3.5 shrink-0" /> : <Eye className="w-3.5 h-3.5 shrink-0" />}
+              <span className="truncate">{isMasked ? 'Masked' : 'Visible'}</span>
             </button>
 
+            {/* 6. Guide / Documentation */}
             <button
               onClick={() => setShowHowToUseModal(true)}
-              className="flex items-center gap-1 px-2 sm:px-3 py-1.5 rounded-xl text-xs font-medium border border-indigo-500/30 bg-indigo-500/10 text-indigo-300 hover:bg-indigo-500/20 transition cursor-pointer"
+              className="flex items-center justify-center gap-1 h-8 px-2 rounded-xl border border-indigo-500/30 bg-indigo-500/10 text-indigo-300 hover:bg-indigo-500/20 transition"
               title="How to Use & Documentation"
             >
-              <BookOpen className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Guide</span>
+              <BookOpen className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">Guide</span>
             </button>
 
+            {/* 7. Security Architecture Info */}
             <button
               onClick={() => setShowSecurityModal(true)}
-              className="flex items-center gap-1 px-2 sm:px-2.5 py-1.5 rounded-xl text-xs font-medium border border-slate-700/60 opacity-80 hover:opacity-100 hover:bg-slate-800/40 transition cursor-pointer"
+              className="flex items-center justify-center gap-1 h-8 px-2 rounded-xl border border-slate-700/60 opacity-80 hover:opacity-100 hover:bg-slate-800/40 transition"
               title="Zero-Knowledge Architecture details"
             >
-              <Info className="w-3.5 h-3.5 text-indigo-400" /> <span className="hidden sm:inline">Info</span>
+              <Info className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+              <span className="truncate">Info</span>
             </button>
 
+            {/* 8. Passphrase Management */}
             <button
               onClick={() => setShowPassModal(true)}
-              className="flex items-center gap-1 px-2 sm:px-2.5 py-1.5 rounded-xl text-xs font-medium border border-slate-700/60 opacity-80 hover:opacity-100 hover:bg-slate-800/40 transition cursor-pointer"
+              className="flex items-center justify-center gap-1 h-8 px-2 rounded-xl border border-slate-700/60 opacity-80 hover:opacity-100 hover:bg-slate-800/40 transition"
               title="Update your vault passphrase"
             >
-              <KeyRound className="w-3.5 h-3.5 text-indigo-400" /> <span className="hidden sm:inline">Pass</span>
+              <KeyRound className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+              <span className="truncate">Pass</span>
             </button>
 
-            {/* Desktop-only Theme & Lock buttons */}
-            <button
-              onClick={toggleTheme}
-              className="hidden md:inline-flex p-2 rounded-xl border border-slate-700/60 opacity-80 hover:opacity-100 hover:bg-slate-800/40 transition cursor-pointer"
-              title="Toggle Light/Dark Theme"
-            >
-              {isDark ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-slate-700" />}
-            </button>
+            {/* Desktop-only toggles (hidden on mobile since they exist in the top bar) */}
+            <div className="hidden md:flex items-center gap-1.5 ml-auto">
+              <button
+                onClick={toggleTheme}
+                className="p-2 rounded-xl border border-slate-700/60 opacity-80 hover:opacity-100 hover:bg-slate-800/40 transition"
+                title="Toggle Light/Dark Theme"
+              >
+                {isDark ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-slate-700" />}
+              </button>
+              <button
+                onClick={handleExplicitLock}
+                className="p-2 rounded-xl border border-rose-500/30 text-rose-400 hover:bg-rose-500/10 transition ml-1"
+                title="Lock Vault Now"
+              >
+                <Lock className="w-4 h-4" />
+              </button>
+            </div>
 
-            <button
-              onClick={handleExplicitLock}
-              className="hidden md:inline-flex p-2 rounded-xl border border-rose-500/30 text-rose-400 hover:bg-rose-500/10 transition cursor-pointer ml-1"
-              title="Lock Vault Now"
-            >
-              <Lock className="w-4 h-4" />
-            </button>
           </div>
         </div>
       </header>
