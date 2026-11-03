@@ -631,56 +631,88 @@ export default function App() {
     <div className={`min-h-screen ${isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
       {floatingBar}
 
-      {/* Two-Line Balanced Dashboard Header */}
+      {/* Responsive Dashboard Header */}
       <header
-        className={`max-w-7xl mx-auto px-6 py-4 flex flex-col gap-3 border-b ${
+        className={`max-w-7xl mx-auto px-3.5 sm:px-6 py-3 sm:py-4 flex flex-col gap-2.5 sm:gap-3 border-b ${
           isDark ? 'border-slate-800 bg-slate-900/80' : 'border-slate-200 bg-white shadow-sm'
         }`}
       >
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
-              <ShieldCheck className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1
-                  onClick={() => handleStepChange('LANDING')}
-                  className="text-lg font-bold tracking-tight cursor-pointer hover:text-indigo-400 transition"
-                  title="Go to Landing Page"
-                >
-                  netto
-                </h1>
-                <span className="text-[11px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full font-medium">
-                  {activeVaultName}
-                </span>
+        {/* ========================================================= */}
+        {/* ROW 1: Branding (Left) & Mobile Quick Toggles (Right)     */}
+        {/* On desktop (md:), tabs sit on the right of this row       */}
+        {/* ========================================================= */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div className="flex items-center justify-between gap-2.5">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="p-1.5 sm:p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 shrink-0">
+                <ShieldCheck className="w-4 h-4 sm:w-5 sm:h-5" />
               </div>
-              <p className="text-[11px] opacity-70 leading-none mt-0.5">{statusMsg}</p>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <h1
+                    onClick={() => handleStepChange('LANDING')}
+                    className="text-base sm:text-lg font-bold tracking-tight cursor-pointer hover:text-indigo-400 transition"
+                    title="Go to Landing Page"
+                  >
+                    netto
+                  </h1>
+                  <span className="text-[10px] sm:text-[11px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full font-medium truncate max-w-[120px] sm:max-w-none">
+                    {activeVaultName}
+                  </span>
+                </div>
+                <p className="text-[10px] sm:text-[11px] opacity-70 leading-none mt-0.5 truncate max-w-[200px] sm:max-w-none">
+                  {statusMsg}
+                </p>
+              </div>
+            </div>
+
+            {/* Mobile-only quick lock / theme shortcut in header top */}
+            <div className="flex items-center gap-1.5 md:hidden">
+              <button
+                onClick={toggleTheme}
+                className="p-1.5 rounded-lg border border-slate-700/60 opacity-80"
+                title="Toggle Theme"
+              >
+                {isDark ? <Sun className="w-3.5 h-3.5 text-amber-400" /> : <Moon className="w-3.5 h-3.5 text-slate-700" />}
+              </button>
+              <button
+                onClick={handleExplicitLock}
+                className="p-1.5 rounded-lg border border-rose-500/30 text-rose-400"
+                title="Lock Vault"
+              >
+                <Lock className="w-3.5 h-3.5" />
+              </button>
             </div>
           </div>
 
-          <div className="flex gap-1 bg-slate-950/20 p-1 rounded-xl text-xs font-semibold border border-slate-800/40">
+          {/* Segmented Tab Bar: 50/50 Grid on Mobile, Inline Flex on Desktop */}
+          <div className="w-full md:w-auto grid grid-cols-2 md:flex gap-1 bg-slate-950/20 p-1 rounded-xl text-xs font-semibold border border-slate-800/40">
             <button
               onClick={() => handleTabChange('OVERVIEW')}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg transition cursor-pointer ${
+              className={`flex items-center justify-center gap-1.5 px-3 py-2 sm:py-1.5 rounded-lg transition cursor-pointer text-center ${
                 subTab === 'OVERVIEW' ? 'bg-indigo-600 text-white shadow' : 'opacity-70 hover:opacity-100'
               }`}
             >
-              <LayoutDashboard className="w-3.5 h-3.5" /> Overview
+              <LayoutDashboard className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">Overview</span>
             </button>
             <button
               onClick={() => handleTabChange('MANAGE')}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg transition cursor-pointer ${
+              className={`flex items-center justify-center gap-1.5 px-3 py-2 sm:py-1.5 rounded-lg transition cursor-pointer text-center ${
                 subTab === 'MANAGE' ? 'bg-indigo-600 text-white shadow' : 'opacity-70 hover:opacity-100'
               }`}
             >
-              <PlusCircle className="w-3.5 h-3.5" /> Manage Assets
+              <PlusCircle className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">Manage Assets</span>
             </button>
           </div>
         </div>
 
-        <div className="w-full flex flex-wrap items-center justify-between gap-3 pt-2.5 border-t border-slate-800/30">
-          <div className="flex flex-wrap items-center gap-2">
+        {/* ========================================================= */}
+        {/* ROW 2: Action Buttons & Secondary Controls               */}
+        {/* ========================================================= */}
+        <div className="w-full flex flex-wrap items-center justify-between gap-2 sm:gap-3 pt-2 sm:pt-2.5 border-t border-slate-800/30">
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
             <button
               onClick={async () => {
                 const symbols = holdings
@@ -720,22 +752,22 @@ export default function App() {
                   setStatusMsg('Using cached prices');
                 }
               }}
-              className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-xl text-xs font-semibold cursor-pointer shadow-sm transition"
+              className="flex items-center gap-1 sm:gap-1.5 bg-blue-600 hover:bg-blue-500 text-white px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold cursor-pointer shadow-sm transition"
               title="Fetch latest stock quotes & exchange rates"
             >
-              <RefreshCw className="w-3.5 h-3.5" /> Prices
+              <RefreshCw className="w-3.5 h-3.5" /> <span>Prices</span>
             </button>
 
             <select
               value={baseCurrency}
               onChange={(e) => setBaseCurrency(e.target.value as CurrencyCode)}
-              className="border border-slate-700/60 rounded-xl px-2.5 py-1.5 text-xs font-semibold bg-transparent cursor-pointer"
+              className="border border-slate-700/60 rounded-xl px-2 py-1.5 text-xs font-semibold bg-transparent cursor-pointer"
               title="Display currency"
             >
-              <option value="SEK">SEK (kr)</option>
-              <option value="INR">INR (₹)</option>
-              <option value="USD">USD ($)</option>
-              <option value="EUR">EUR (€)</option>
+              <option value="SEK">SEK</option>
+              <option value="INR">INR</option>
+              <option value="USD">USD</option>
+              <option value="EUR">EUR</option>
             </select>
 
             <button
@@ -747,10 +779,10 @@ export default function App() {
                   setStatusMsg(msg);
                 })
               }
-              className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-xl text-xs font-semibold shadow cursor-pointer transition"
+              className="flex items-center gap-1 sm:gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold shadow cursor-pointer transition"
               title="Save encrypted snapshot to Google Drive AppData"
             >
-              <CloudUpload className="w-3.5 h-3.5" /> Save to Drive
+              <CloudUpload className="w-3.5 h-3.5" /> <span className="hidden xs:inline sm:inline">Save to Drive</span><span className="xs:hidden sm:hidden inline">Drive</span>
             </button>
 
             <button
@@ -760,54 +792,55 @@ export default function App() {
                 downloadEncryptedBlob(enc, activeVaultName);
                 setStatusMsg('Encrypted backup exported!');
               }}
-              className="flex items-center gap-1.5 border border-slate-700/70 hover:bg-slate-800 text-slate-200 px-3 py-1.5 rounded-xl text-xs font-semibold cursor-pointer transition"
+              className="flex items-center gap-1 sm:gap-1.5 border border-slate-700/70 hover:bg-slate-800 text-slate-200 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold cursor-pointer transition"
               title="Download encrypted .sqlite.enc backup to local disk"
             >
-              <FileDown className="w-3.5 h-3.5 text-indigo-400" /> Backup File
+              <FileDown className="w-3.5 h-3.5 text-indigo-400" /> <span className="hidden xs:inline sm:inline">Backup File</span><span className="xs:hidden sm:hidden inline">Backup</span>
             </button>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
             <button
               onClick={() => setIsMasked(!isMasked)}
-              className={`px-3 py-1.5 rounded-xl border transition flex items-center gap-1.5 text-xs font-semibold cursor-pointer ${
+              className={`px-2.5 sm:px-3 py-1.5 rounded-xl border transition flex items-center gap-1 sm:gap-1.5 text-xs font-semibold cursor-pointer ${
                 isMasked
                   ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
                   : 'bg-indigo-600 border-indigo-500 text-white shadow-sm'
               }`}
-              title="Toggle Privacy Mask (hides values for screen sharing/public)"
+              title="Toggle Privacy Mask"
             >
               {isMasked ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-              <span>{isMasked ? 'Privacy: ON' : 'Privacy: OFF'}</span>
+              <span>{isMasked ? 'Masked' : 'Visible'}</span>
             </button>
 
             <button
               onClick={() => setShowHowToUseModal(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border border-indigo-500/30 bg-indigo-500/10 text-indigo-300 hover:bg-indigo-500/20 transition cursor-pointer"
+              className="flex items-center gap-1 px-2 sm:px-3 py-1.5 rounded-xl text-xs font-medium border border-indigo-500/30 bg-indigo-500/10 text-indigo-300 hover:bg-indigo-500/20 transition cursor-pointer"
               title="How to Use & Documentation"
             >
-              <BookOpen className="w-3.5 h-3.5" /> How to Use
+              <BookOpen className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Guide</span>
             </button>
 
             <button
               onClick={() => setShowSecurityModal(true)}
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-medium border border-slate-700/60 opacity-80 hover:opacity-100 hover:bg-slate-800/40 transition cursor-pointer"
+              className="flex items-center gap-1 px-2 sm:px-2.5 py-1.5 rounded-xl text-xs font-medium border border-slate-700/60 opacity-80 hover:opacity-100 hover:bg-slate-800/40 transition cursor-pointer"
               title="Zero-Knowledge Architecture details"
             >
-              <Info className="w-3.5 h-3.5 text-indigo-400" /> Info
+              <Info className="w-3.5 h-3.5 text-indigo-400" /> <span className="hidden sm:inline">Info</span>
             </button>
 
             <button
               onClick={() => setShowPassModal(true)}
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-medium border border-slate-700/60 opacity-80 hover:opacity-100 hover:bg-slate-800/40 transition cursor-pointer"
+              className="flex items-center gap-1 px-2 sm:px-2.5 py-1.5 rounded-xl text-xs font-medium border border-slate-700/60 opacity-80 hover:opacity-100 hover:bg-slate-800/40 transition cursor-pointer"
               title="Update your vault passphrase"
             >
-              <KeyRound className="w-3.5 h-3.5 text-indigo-400" /> Passphrase
+              <KeyRound className="w-3.5 h-3.5 text-indigo-400" /> <span className="hidden sm:inline">Pass</span>
             </button>
 
+            {/* Desktop-only Theme & Lock buttons */}
             <button
               onClick={toggleTheme}
-              className="p-2 rounded-xl border border-slate-700/60 opacity-80 hover:opacity-100 hover:bg-slate-800/40 transition cursor-pointer"
+              className="hidden md:inline-flex p-2 rounded-xl border border-slate-700/60 opacity-80 hover:opacity-100 hover:bg-slate-800/40 transition cursor-pointer"
               title="Toggle Light/Dark Theme"
             >
               {isDark ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-slate-700" />}
@@ -815,7 +848,7 @@ export default function App() {
 
             <button
               onClick={handleExplicitLock}
-              className="p-2 rounded-xl border border-rose-500/30 text-rose-400 hover:bg-rose-500/10 transition cursor-pointer ml-1"
+              className="hidden md:inline-flex p-2 rounded-xl border border-rose-500/30 text-rose-400 hover:bg-rose-500/10 transition cursor-pointer ml-1"
               title="Lock Vault Now"
             >
               <Lock className="w-4 h-4" />
