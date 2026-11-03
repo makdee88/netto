@@ -69,7 +69,6 @@ import {
 } from 'lucide-react';
 
 const THEME_KEY = 'netto_color_theme';
-const GDRIVE_TOKEN_KEY = 'netto_gdrive_token';
 const SESSION_PASS_PREFIX = 'netto_active_pass_';
 const GOOGLE_CLIENT_ID =
   ((import.meta as any).env?.VITE_GOOGLE_CLIENT_ID as string) ||
